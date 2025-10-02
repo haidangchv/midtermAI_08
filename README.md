@@ -1,14 +1,22 @@
-# Midterm Skeleton (A* – 8‑Puzzle & Pacman)
+# Midterm Skeleton (A* – 8-Puzzle & Pacman)
 
-> **Hướng dẫn nhanh (≤ 60s)**
+## Quick start
 ```bash
-# Task 1: chạy thử khung thí nghiệm
+# Task 1: thử A* vs BFS
 cd source/task1_eight_puzzle
-python experiments.py --seed 42 --n 3
+python experiments.py --seed 42 --n 2
 
-# Task 2: chạy thử (placeholder)
+# Task 2: thử A* (không GUI)
 cd ../task2_pacman
 python experiments.py
+
+# GUI Pacman (pygame scaffold)
+cd gui
+python main.py   # yêu cầu: pip install pygame
 ```
-- `presentation_template.md`: soạn slide 4:3 rồi **Export as PDF** để nộp.
-- `demo.txt`: dán URL video demo (≤ 3').
+
+Thư mục chính:
+- `source/task1_eight_puzzle`: A* generic, 8-Puzzle với 4 goal, BFS để so sánh, thí nghiệm & vẽ cây (txt).
+- `source/task2_pacman`: PacmanProblem + heuristic MST + thí nghiệm; `gui/` có khung pygame.
+- `results/`: nơi lưu log/ảnh.
+- `presentation_template.md`, `demo.txt`.

@@ -1,1 +1,1 @@
-Add UML class diagram image here (export PNG/SVG).
+Add UML diagram here.
