@@ -1,7 +1,11 @@
+# ===============================================================
+#  A* Algorithm Framework (Problem + Node + Heuristic)
+# ===============================================================
 from __future__ import annotations
 from typing import Any, Iterable, Protocol, Tuple, Optional, Dict, List
 import heapq
 
+# ---- Giao diện bài toán ----
 class Problem(Protocol):
     def initial_state(self) -> Any: ...
     def is_goal(self, state: Any) -> bool: ...
@@ -9,37 +13,63 @@ class Problem(Protocol):
     def result(self, state: Any, action: Any) -> Any: ...
     def step_cost(self, state: Any, action: Any, next_state: Any) -> float: ...
 
+# ---- Giao diện heuristic ----
 class Heuristic(Protocol):
     def h(self, state: Any) -> float: ...
 
+# ---- Node của cây tìm kiếm ----
 class Node:
     __slots__ = ("state","g","h","f","parent","action")
     def __init__(self, state: Any, g: float, h: float, parent: Optional["Node"]=None, action: Any=None):
-        self.state = state; self.g = g; self.h = h; self.f = g + h
-        self.parent = parent; self.action = action
+        self.state = state
+        self.g = g
+        self.h = h
+        self.f = g + h
+        self.parent = parent
+        self.action = action
 
     def path(self) -> List["Node"]:
+        """Truy vết ngược để lấy toàn bộ đường đi"""
         n, out = self, []
-        while n: out.append(n); n = n.parent
+        while n:
+            out.append(n)
+            n = n.parent
         return list(reversed(out))
 
+# ---- Thuật toán A* tổng quát ----
 def astar(problem: Problem, heuristic: Heuristic, *, graph_search: bool=True):
     start = problem.initial_state()
     root = Node(start, 0.0, heuristic.h(start))
-    open_heap: List[Tuple[float,int,Node]] = []; tie = 0
+    open_heap: List[Tuple[float,int,Node]] = []
+    tie = 0
     heapq.heappush(open_heap, (root.f, tie, root))
     best_g: Dict[Any, float] = {start: 0.0} if graph_search else {}
     expanded = generated = 0
 
     while open_heap:
-        _,_, node = heapq.heappop(open_heap); expanded += 1
+        _,_, node = heapq.heappop(open_heap)
+        expanded += 1
+
         if problem.is_goal(node.state):
-            return {"solution": node.path(), "expanded": expanded, "generated": generated, "cost": node.g}
+            return {
+                "solution": [n.state for n in node.path()],
+                "expanded": expanded,
+                "generated": generated,
+                "cost": node.g
+            }
+
         for action in problem.actions(node.state):
             s2 = problem.result(node.state, action)
             g2 = node.g + problem.step_cost(node.state, action, s2)
-            if graph_search and g2 >= best_g.get(s2, float("inf")) - 1e-12: continue
-            h2 = heuristic.h(s2); n2 = Node(s2, g2, h2, node, action); generated += 1
+
+            if graph_search and g2 >= best_g.get(s2, float("inf")) - 1e-12:
+                continue
+
+            h2 = heuristic.h(s2)
+            n2 = Node(s2, g2, h2, node, action)
+            generated += 1
             if graph_search: best_g[s2] = g2
-            tie += 1; heapq.heappush(open_heap, (n2.f, tie, n2))
+            tie += 1
+            heapq.heappush(open_heap, (n2.f, tie, n2))
+
     return {"solution": None, "expanded": expanded, "generated": generated, "cost": float("inf")}
