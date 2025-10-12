@@ -4,7 +4,7 @@ from bfs import bfs
 from problem import EightPuzzleProblem
 from heuristics import HCeilHalf, HPDBAdditive, HMax
 from draw_tree import draw_tree
-
+from tree_tracer import SearchTreeTracer
 GOALS = [
     ((1,2,3),(4,5,6),(7,8,0)),  # G1
     ((8,7,6),(5,4,3),(2,1,0)),  # G2
@@ -73,7 +73,7 @@ def main():
     if args.export_csv:
         print(f"[CSV] logging to: {args.csv_path}")
 
-    init = ((1,2,3),(4,5,6),(7,0,8))
+    init = ((1,2,3),(4,5,6),(7,8,0))
     for i in range(args.n):
         s0 = shuffle_state(init, k=args.shuffle_k, seed=args.seed + i)
         prob = EightPuzzleProblem(s0, GOALS)
@@ -85,14 +85,24 @@ def main():
         rows = []
 
         # A*
+        tracer = SearchTreeTracer(n_limit=args.draw_n)
         t0 = time.time()
-        res_a = astar(prob, h, graph_search=True)
+        res_a = astar(prob, h, graph_search=True, on_generate=tracer.on_generate)
         dt_a = (time.time() - t0) * 1000
-        if res_a["solution"]:
-            draw_tree(res_a["solution"], n=args.draw_n)
+        # Xuất cây ra DOT để xem trên GraphvizOnline
+        os.makedirs("./results", exist_ok=True)
+        with open("./results/task1_tree.dot", "w", encoding="utf-8") as f:
+            f.write(tracer.to_dot())
+
         print(f"[A* ] cost={res_a['cost']}, expanded={res_a['expanded']}, generated={res_a['generated']}, time_ms={dt_a:.2f}")
         if args.export_csv:
-            rows.append([i, args.seed + i, args.shuffle_k, args.heuristic, "A*", res_a["cost"], res_a["expanded"], res_a["generated"], f"{dt_a:.2f}"])
+            rows.append([i, args.seed + i, args.shuffle_k, args.heuristic, "A*", res_a["cost"],
+                        res_a["expanded"], res_a["generated"], f"{dt_a:.2f}"])
+        # if res_a["solution"]:
+        #     draw_tree(res_a["solution"], n=args.draw_n)
+        # print(f"[A* ] cost={res_a['cost']}, expanded={res_a['expanded']}, generated={res_a['generated']}, time_ms={dt_a:.2f}")
+        # if args.export_csv:
+        #     rows.append([i, args.seed + i, args.shuffle_k, args.heuristic, "A*", res_a["cost"], res_a["expanded"], res_a["generated"], f"{dt_a:.2f}"])
 
         # BFS
         t1 = time.time()
