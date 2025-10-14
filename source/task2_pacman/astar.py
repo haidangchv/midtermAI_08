@@ -37,8 +37,14 @@ def astar(problem: Problem, heuristic: Heuristic, *, graph_search: bool=True):
             return {"solution": node.path(), "expanded": expanded, "generated": generated, "cost": node.g}
         for action in problem.actions(node.state):
             s2 = problem.result(node.state, action)
+            if s2 is None:
+                # trạng thái không hợp lệ (ví dụ: đụng ma) -> bỏ qua
+                continue
+            
             g2 = node.g + problem.step_cost(node.state, action, s2)
+            
             if graph_search and g2 >= best_g.get(s2, float("inf")) - 1e-12: continue
+            
             h2 = heuristic.h(s2); n2 = Node(s2, g2, h2, node, action); generated += 1
             if graph_search: best_g[s2] = g2
             tie += 1; heapq.heappush(open_heap, (n2.f, tie, n2))
