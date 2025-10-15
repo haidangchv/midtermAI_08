@@ -1,4 +1,4 @@
-# GUI pygame: ma đi ngang dội tường, teleport 4 góc, xoay mê cung mỗi 30 bước, O -> TTL=5
+# GUI pygame: manual + AUTO (A*), teleport góc, TTL khi ăn O, ma đi ngang dội tường, xoay 30 bước
 try:
     import pygame
 except Exception as e:
@@ -6,20 +6,27 @@ except Exception as e:
     print("Detail:", e)
     raise SystemExit(0)
 
-import sys
+import sys, os
 from typing import List, Tuple, Set
+
+# Cho phép import từ thư mục cha để dùng lại core & heuristic
+sys.path.append(os.path.abspath(".."))
+from pacman_problem import PacmanProblem
+from heuristics import HeuristicPacmanMST
+
+# Dùng A* chung của task2
+from astar import astar
 
 CELL = 32
 FPS = 30
 
-SAMPLE = [
-    "%%%%%%%%%%%%",
-    "%P..O...  E%",
-    "%   %  %   %",
-    "%   O     G%",
-    "%   %  %   %",
-    "%%%%%%%%%%%%",
-]
+DEFAULT_LAYOUT_PATH = "task02_pacman_example_map.txt"
+
+def load_layout_file(path):
+    with open(path, "r", encoding="utf-8") as f:
+        lines = [line.rstrip("\n") for line in f if line.strip("\n")]
+    w = max(len(x) for x in lines)
+    return [row.ljust(w) for row in lines]
 
 def rotate_grid_cw(grid: List[str]) -> List[str]:
     R, C = len(grid), len(grid[0])
@@ -40,7 +47,7 @@ def parse_grid(grid: List[str]):
             elif ch == 'G': ghosts.append([(r,c), +1])  # [pos, dir]
     return start, foods, exit_pos, pies, ghosts
 
-def draw_grid(screen, grid, pac, foods, exit_pos, pies, ghosts, ttl, step_mod):
+def draw_grid(screen, grid, pac, foods, exit_pos, pies, ghosts, ttl, step_mod, auto_mode):
     screen.fill((0,0,0))
     R, C = len(grid), len(grid[0])
     for r in range(R):
@@ -70,7 +77,7 @@ def draw_grid(screen, grid, pac, foods, exit_pos, pies, ghosts, ttl, step_mod):
 
     # HUD
     font = pygame.font.SysFont(None, 20)
-    hud = font.render(f"TTL: {ttl}   step%30: {step_mod}", True, (255,255,255))
+    hud = font.render(f"TTL: {ttl}   step%30: {step_mod}   AUTO: {'ON' if auto_mode else 'OFF'}", True, (255,255,255))
     screen.blit(hud, (8, CELL*len(grid)+6))
 
 def is_wall(grid: List[str], r: int, c: int) -> bool:
@@ -110,19 +117,21 @@ def rotate_world(grid, pac, foods, pies, ghosts, exit_pos):
     return new_grid, new_pac, new_foods, new_pies, new_ghosts, new_exit
 
 def main():
-    grid = SAMPLE
+    grid = load_layout_file(DEFAULT_LAYOUT_PATH)
     start, foods, exit_pos, pies, ghosts = parse_grid(grid)
     pac = list(start)
     ttl = 0
     step_mod = 0
 
-    R, C = len(grid), len(grid[0])
-    width, height = C*CELL, R*CELL + 28
-
+    width, height = len(grid[0])*CELL, len(grid)*CELL + 28
     pygame.init()
     screen = pygame.display.set_mode((width, height))
-    pygame.display.set_caption("Pacman – teleport corners, ghosts, 30-step rotation")
+    pygame.display.set_caption("Pacman – manual/AUTO(A*), teleport, TTL, rotate30, ghosts")
     clock = pygame.time.Clock()
+
+    auto_mode = False
+    auto_plan = []   # list action chars: 'N','S','E','W'
+    auto_tick_cooldown = 0  # frame delay giữa hai bước auto
 
     running = True
     while running:
@@ -135,39 +144,84 @@ def main():
                 elif event.key == pygame.K_DOWN: dr = +1
                 elif event.key == pygame.K_LEFT: dc = -1
                 elif event.key == pygame.K_RIGHT: dc = +1
+                elif event.key == pygame.K_a:
+                    # toggle AUTO và lập kế hoạch bằng A*
+                    auto_mode = not auto_mode
+                    auto_plan = []
+                    if auto_mode:
+                        foods_list = sorted(list(foods))
+                        pies_list = sorted(list(pies))
+                        ghosts_list = [(tuple(pos), d) for (pos, d) in ghosts]
+                        try:
+                            prob = PacmanProblem(grid, tuple(pac), foods_list, exit_pos, pies=pies_list, ghosts=ghosts_list)
+                            h = HeuristicPacmanMST(grid, exit_pos)
+                            res = astar(prob, h, graph_search=True)
+                            if res.get("solution"):
+                                auto_plan = [n.action for n in res["solution"][1:]]  # bỏ node gốc
+                                print(f"[AUTO] plan len={len(auto_plan)} cost={res['cost']}")
+                            else:
+                                print("[AUTO] No solution found.")
+                                auto_mode = False
+                        except Exception as e:
+                            print("[AUTO] Planning error:", e)
+                            auto_mode = False
 
-                # Pacman move
+                # Manual step
+                if dr or dc:
+                    nr, nc = pac[0] + dr, pac[1] + dc
+                    if 0 <= nr < len(grid) and 0 <= nc < len(grid[0]):
+                        if not is_wall(grid, nr, nc) or ttl > 0:
+                            pac = [nr, nc]
+                            step_mod = (step_mod + 1) % 30
+                            ttl = max(0, ttl - 1)
+                            # Teleport
+                            pac[0], pac[1] = teleport_if_corner(grid, pac[0], pac[1])
+                            # Collect
+                            if tuple(pac) in foods: foods.remove(tuple(pac))
+                            if tuple(pac) in pies: ttl = 5; pies.remove(tuple(pac))
+                            # Ghosts move
+                            ghosts = move_ghosts(grid, ghosts)
+                            # Collision
+                            for (gr,gc), _ in ghosts:
+                                if (gr,gc) == tuple(pac):
+                                    print(" Bị ma bắt!")
+                                    auto_mode = False; auto_plan = []
+                                    break
+                            # Rotate mỗi 30 bước
+                            if step_mod == 0:
+                                grid, pac, foods, pies, ghosts, exit_pos = rotate_world(grid, tuple(pac), foods, pies, ghosts, exit_pos)
+                                pac = list(pac)
+
+        # AUTO step mỗi vài frame
+        if auto_mode and auto_plan:
+            if auto_tick_cooldown == 0:
+                a = auto_plan.pop(0)
+                drdc = {"N":(-1,0),"S":(1,0),"W":(0,-1),"E":(0,1)}
+                dr, dc = drdc[a]
                 nr, nc = pac[0] + dr, pac[1] + dc
                 if 0 <= nr < len(grid) and 0 <= nc < len(grid[0]):
-                    if not is_wall(grid, nr, nc) or ttl > 0:
+                    wall = (grid[nr][nc] == '%')
+                    if not wall or ttl > 0:
                         pac = [nr, nc]
                         step_mod = (step_mod + 1) % 30
                         ttl = max(0, ttl - 1)
-
-                        # Teleport on corner
                         pac[0], pac[1] = teleport_if_corner(grid, pac[0], pac[1])
-
-                        # Collect
                         if tuple(pac) in foods: foods.remove(tuple(pac))
-                        if tuple(pac) in pies:
-                            ttl = 5
-                            pies.remove(tuple(pac))
-
-                        # Ghosts move after pacman
+                        if tuple(pac) in pies: ttl = 5; pies.remove(tuple(pac))
                         ghosts = move_ghosts(grid, ghosts)
-
-                        # Collision -> reset (demo): ở bản problem là "None transition"
                         for (gr,gc), _ in ghosts:
                             if (gr,gc) == tuple(pac):
-                                print(" Bị ma bắt! (demo GUI chỉ in thông báo)")
-                                # bạn có thể làm hiệu ứng hoặc reset map tại đây
-
-                        # Rotate every 30 steps
+                                print("💥 Bị ma bắt! (AUTO dừng)")
+                                auto_mode = False; auto_plan = []
+                                break
                         if step_mod == 0:
                             grid, pac, foods, pies, ghosts, exit_pos = rotate_world(grid, tuple(pac), foods, pies, ghosts, exit_pos)
                             pac = list(pac)
+                auto_tick_cooldown = 4
+            else:
+                auto_tick_cooldown -= 1
 
-        draw_grid(screen, grid, tuple(pac), foods, exit_pos, pies, ghosts, ttl, step_mod)
+        draw_grid(screen, grid, tuple(pac), foods, exit_pos, pies, ghosts, ttl, step_mod, auto_mode)
         pygame.display.flip()
         clock.tick(FPS)
 

@@ -30,6 +30,9 @@ def mst_lower_bound(grid: Grid, points: List[Pos]) -> int:
     return total
 
 class HeuristicPacmanMST:
+    """
+    MST-LB trên bản đồ tĩnh (bỏ qua ma/TTL/teleport/xoay) ⇒ admissible, không dùng Euclid/Manhattan.
+    """
     def __init__(self, static_grid: Grid, exit_pos: Pos):
         self.grid = static_grid; self.exit = exit_pos
     def h(self, state) -> float:
