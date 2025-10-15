@@ -9,10 +9,14 @@ except Exception as e:
 import sys, os
 from typing import List, Tuple, Set
 
-# Cho phép import từ thư mục cha để dùng lại core & heuristic
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))           
+TASK2_DIR = os.path.abspath(os.path.join(BASE_DIR, ".."))       
+sys.path.insert(0, TASK2_DIR)  
+
+# Cho phép import từ thư mục cha để dùng lại core heuristic
 sys.path.append(os.path.abspath(".."))
 from pacman_problem import PacmanProblem
-from heuristics import HeuristicPacmanMST
+from heuristics import HeuristicPacmanMST 
 
 # Dùng A* chung của task2
 from astar import astar
@@ -20,7 +24,10 @@ from astar import astar
 CELL = 32
 FPS = 30
 
-DEFAULT_LAYOUT_PATH = "task02_pacman_example_map.txt"
+GHOST_MOVE_MS = 200  # 200ms ~ 5 lần/giây
+GHOST_EVENT = pygame.USEREVENT + 1
+
+DEFAULT_LAYOUT_PATH = os.path.abspath(os.path.join(TASK2_DIR, "..", "..", "task02_pacman_example_map.txt"))
 
 def load_layout_file(path):
     with open(path, "r", encoding="utf-8") as f:
@@ -127,6 +134,7 @@ def main():
     pygame.init()
     screen = pygame.display.set_mode((width, height))
     pygame.display.set_caption("Pacman – manual/AUTO(A*), teleport, TTL, rotate30, ghosts")
+    pygame.time.set_timer(GHOST_EVENT, GHOST_MOVE_MS)  # NEW: hẹn giờ ma
     clock = pygame.time.Clock()
 
     auto_mode = False
@@ -138,6 +146,16 @@ def main():
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+                # NEW: ma tự di chuyển theo thời gian
+            elif event.type == GHOST_EVENT:
+                ghosts = move_ghosts(grid, ghosts)
+                # kiểm tra va chạm sau khi ma di chuyển
+                for (gr, gc), _ in ghosts:
+                    if (gr, gc) == tuple(pac):
+                        print("💥 Bị ma bắt! (ghost timer)")
+                        auto_mode = False
+                        auto_plan = []
+                        break
             elif event.type == pygame.KEYDOWN:
                 dr = dc = 0
                 if event.key == pygame.K_UP: dr = -1
@@ -179,8 +197,6 @@ def main():
                             # Collect
                             if tuple(pac) in foods: foods.remove(tuple(pac))
                             if tuple(pac) in pies: ttl = 5; pies.remove(tuple(pac))
-                            # Ghosts move
-                            ghosts = move_ghosts(grid, ghosts)
                             # Collision
                             for (gr,gc), _ in ghosts:
                                 if (gr,gc) == tuple(pac):
@@ -208,10 +224,9 @@ def main():
                         pac[0], pac[1] = teleport_if_corner(grid, pac[0], pac[1])
                         if tuple(pac) in foods: foods.remove(tuple(pac))
                         if tuple(pac) in pies: ttl = 5; pies.remove(tuple(pac))
-                        ghosts = move_ghosts(grid, ghosts)
                         for (gr,gc), _ in ghosts:
                             if (gr,gc) == tuple(pac):
-                                print("💥 Bị ma bắt! (AUTO dừng)")
+                                print(" Bị ma bắt! (AUTO dừng)")
                                 auto_mode = False; auto_plan = []
                                 break
                         if step_mod == 0:
