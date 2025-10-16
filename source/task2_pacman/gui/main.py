@@ -206,7 +206,7 @@ def draw_grid(surface, grid, pac, foods, exit_pos, pies, ghosts, ttl, step_mod, 
 
     # Dòng 2: hint teleport nếu đang ở neo
     if is_at_anchor(grid, pac):
-        hint = font.render("Press 1–4 to teleport (TL, TR, BL, BR)", True, (0, 200, 255))
+        hint = font.render("Press shift 1–4 to teleport (TL, TR, BL, BR)", True, (0, 200, 255))
         surface.blit(hint, (8, y0 + 20))
 
     # Dòng 3: nếu đứng ở EXIT nhưng chưa đủ food, báo dưới HUD
@@ -267,10 +267,6 @@ def show_center_message(screen, text, millis=1200):
     pygame.time.wait(millis)
 
 def reset_game_state():
-    """
-    Reload layout từ file mặc định và reset mọi biến trạng thái về ban đầu.
-    Trả về tuple: (grid, pac, foods, exit_pos, pies, ghosts, ttl, step_mod, logical_surface, auto_mode, auto_plan)
-    """
     grid = load_layout_file(DEFAULT_LAYOUT_PATH)
     start, foods, exit_pos, pies, ghosts = parse_grid(grid)
     pac = list(start)
