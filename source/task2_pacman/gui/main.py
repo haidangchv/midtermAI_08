@@ -252,6 +252,36 @@ def handle_completed_input(screen, logical_surface, reset_game_cb):
         return "quit"
     return None
 
+def show_center_message(screen, text, millis=1200):
+    """Hiện thông báo giữa cửa sổ trong millis ms."""
+    screen.fill((0, 0, 0))
+    font_big = pygame.font.SysFont(None, 48)
+    font_small = pygame.font.SysFont(None, 24)
+    msg = font_big.render(text, True, (255, 80, 80))
+    hint = font_small.render("Resetting...", True, (220, 220, 220))
+    rect = msg.get_rect(center=(screen.get_width()//2, screen.get_height()//2 - 16))
+    rect2 = hint.get_rect(center=(screen.get_width()//2, screen.get_height()//2 + 24))
+    screen.blit(msg, rect)
+    screen.blit(hint, rect2)
+    pygame.display.flip()
+    pygame.time.wait(millis)
+
+def reset_game_state():
+    """
+    Reload layout từ file mặc định và reset mọi biến trạng thái về ban đầu.
+    Trả về tuple: (grid, pac, foods, exit_pos, pies, ghosts, ttl, step_mod, logical_surface, auto_mode, auto_plan)
+    """
+    grid = load_layout_file(DEFAULT_LAYOUT_PATH)
+    start, foods, exit_pos, pies, ghosts = parse_grid(grid)
+    pac = list(start)
+    ttl = 0
+    step_mod = 0
+    logical_surface = make_logical_surface(grid)
+    auto_mode = False
+    auto_plan = []
+    return grid, pac, foods, exit_pos, pies, ghosts, ttl, step_mod, logical_surface, auto_mode, auto_plan
+
+
 # ----- MAIN LOOP -----
 def main():
     def reset_game():
@@ -310,8 +340,8 @@ def main():
                 for (gr, gc), _ in ghosts:
                     if (gr, gc) == tuple(pac):
                         print("Bị ma bắt! (ghost timer)")
-                        auto_mode = False
-                        auto_plan = []
+                        show_center_message(screen, "Bị ma bắt!")
+                        reset_game()
                         break
 
             elif event.type == pygame.KEYDOWN:
@@ -353,7 +383,8 @@ def main():
                         for (gr, gc), _ in ghosts:
                             if (gr, gc) == tuple(pac):
                                 print("Bị ma bắt! (teleport)")
-                                auto_mode = False; auto_plan = []
+                                show_center_message(screen, " Bị ma bắt!")
+                                reset_game()
                                 break
                         # Xoay sau mỗi 30 bước
                         if step_mod == 0:
@@ -406,7 +437,8 @@ def main():
                             for (gr,gc), _ in ghosts:
                                 if (gr,gc) == tuple(pac):
                                     print("Bị ma bắt!")
-                                    auto_mode = False; auto_plan = []
+                                    show_center_message(screen, " Bị ma bắt!")
+                                    reset_game()
                                     break
                             # Rotate world each 30 steps
                             if step_mod == 0:
@@ -417,7 +449,7 @@ def main():
                                 logical_surface = make_logical_surface(grid)
                             # Kiểm tra hoàn thành
                             if len(foods) == 0 and tuple(pac) == exit_pos:
-                                print("🎉 Completed! All food collected and reached EXIT.")
+                                print("Completed! All food collected and reached EXIT.")
                                 auto_mode = False; auto_plan = []
                                 game_completed = True
                                 pygame.time.set_timer(GHOST_EVENT, 0)
@@ -440,7 +472,8 @@ def main():
                         for (gr,gc), _ in ghosts:
                             if (gr,gc) == tuple(pac):
                                 print("Bị ma bắt! (AUTO dừng)")
-                                auto_mode = False; auto_plan = []
+                                show_center_message(screen, "Bị ma bắt! (AUTO dừng)")
+                                reset_game()
                                 break
                         if step_mod == 0:
                             grid, pac, foods, pies, ghosts, exit_pos = rotate_world(
@@ -450,7 +483,7 @@ def main():
                             logical_surface = make_logical_surface(grid)
                         # Kiểm tra hoàn thành
                         if len(foods) == 0 and tuple(pac) == exit_pos:
-                            print("🎉 Completed! All food collected and reached EXIT.")
+                            print(" Completed! All food collected and reached EXIT.")
                             auto_mode = False; auto_plan = []
                             game_completed = True
                             pygame.time.set_timer(GHOST_EVENT, 0)
