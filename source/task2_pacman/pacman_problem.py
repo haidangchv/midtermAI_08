@@ -239,7 +239,7 @@ class PacmanProblem:
         nr, nc = r, c
         ttl = max(0, s.ttl - 1)
 
-        # 1) Di chuyển Pacman (tường xuyên nếu ttl>0)
+        # move pacman
         if a in ("N", "S", "E", "W"):
             drdc = {"N": (-1, 0), "S": (1, 0), "W": (0, -1), "E": (0, 1)}
             dr, dc = drdc[a]
@@ -254,13 +254,12 @@ class PacmanProblem:
         else:
             return None
 
-        # 2) Va chạm TRƯỚC tick: Pacman bước vào ô có ma hiện tại?
-        if ttl == 0:
-            for gh in s.ghosts:
-                if gh.pos == (nr, nc):
-                    return None  # bị bắt ngay
+        # (MỚI) đụng ma TRƯỚC tick => chết (bỏ điều kiện TTL)
+        for gh in s.ghosts:
+            if gh.pos == (nr, nc):
+                return None
 
-        # 3) Ăn food/pie
+        # ăn food/pie
         foods = list(s.foods)
         if (nr, nc) in foods:
             foods.remove((nr, nc))
@@ -269,26 +268,22 @@ class PacmanProblem:
             pies.remove((nr, nc))
             ttl = 5
 
-        # 4) Ma di chuyển
+        # ghost tick
         old_ghosts = s.ghosts
         ghosts = self._move_ghosts(s.rot_idx, old_ghosts)
 
-        # 5) Va chạm SAU tick + GIAO CẮT CẠNH
-        #   - sau tick: ma ở ô mới trùng pacman
-        #   - swap: ma đi từ (nr,nc) -> (r,c) trong khi pacman từ (r,c) -> (nr,nc)
+        # (MỚI) đụng ma SAU tick + SWAP cạnh => chết
         for gh_old, gh_new in zip(old_ghosts, ghosts):
-            if gh_new.pos == (nr, nc):  # sau tick
+            if gh_new.pos == (nr, nc):
                 return None
-            if gh_old.pos == (nr, nc) and gh_new.pos == (r, c):  # swap cạnh
+            if gh_old.pos == (nr, nc) and gh_new.pos == (r, c):  # swap
                 return None
 
-        # 6) Tick xoay mỗi 30 bước
         steps_mod30 = (s.steps_mod30 + 1) % 30
         new_state = PacmanState((nr, nc), tuple(foods), tuple(pies), ghosts, ttl, steps_mod30, s.rot_idx)
         if steps_mod30 == 0:
             new_state = self._rotate_world(new_state)
         return new_state
-
 
     def step_cost(self, s: PacmanState, a: str, s2: PacmanState) -> float:
         return 1.0
