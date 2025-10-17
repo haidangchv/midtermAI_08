@@ -707,6 +707,8 @@ if __name__ == "__main__":
     print("\n=== Summary (A*_h0 vs A*_h_max_pair_corner vs BFS) ===")
     for name, row in summarize_results(res2).items():
         print(name.replace("A*_hpair", "A*_h_max_pair_corner"), row)
+    
+    print("\n=== Render search tree examples ===")
 
     DOT = r"C:\Program Files\Graphviz\bin\dot.exe"  # hoặc r"C:\Program Files\Graphviz\bin"
     # 7) Render PNG với giới hạn số cạnh
