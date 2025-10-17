@@ -4,7 +4,8 @@ import argparse, os, time, csv
 from astar import astar
 from bfs import bfs
 from pacman_problem import PacmanProblem
-from heuristics import HeuristicPacmanMST
+from heuristics import HeuristicTeleportAware
+
 
 # ----- IMPORT PATHS -----
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))           # .../source/task2_pacman/gui
@@ -74,7 +75,7 @@ def main():
     start, foods, exit_pos, pies, ghosts = parse_layout(grid)
 
     prob = PacmanProblem(grid, start, foods, exit_pos, pies=pies, ghosts=ghosts)
-    h = HeuristicPacmanMST(grid, exit_pos)
+    h =HeuristicTeleportAware(grid, exit_pos)
 
     rows = []
 
