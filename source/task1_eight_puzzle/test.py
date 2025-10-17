@@ -442,38 +442,39 @@ def evaluate_admissibility_along_path(problem: EightPuzzleProblem,
                                       heuristic: Callable[[Grid, EightPuzzleProblem], float],
                                       solution_node: Node) -> List[dict]:
     """
-    Duyệt dọc theo đường đi (path) từ gốc→đích, in bảng:
-    Step | h(n) | h*(n) | h(n) ≤ h*(n)?
+    BẢNG 1 — KIỂM TRA TÍNH ADMISSIBLE TRÊN ĐƯỜNG ĐI NGHIỆM
+    Điều kiện: h(n) ≤ h*(n), trong đó h*(n) là chi phí tối ưu (tính bằng BFS).
     """
     rows: List[dict] = []
     path = solution_node.path()
-    print("\nBẢNG ĐÁNH GIÁ ADMISSIBILITY")
-    print("=" * 60)
-    print(f"{'Step':<6}{'h(n)':<10}{'h*(n)':<10}{'Admissible?'}")
-    print("-" * 60)
+    print("\nBẢNG 1 — KIỂM TRA TÍNH ADMISSIBLE (h(n) ≤ h*(n)) TRÊN ĐƯỜNG ĐI NGHIỆM")
+    print("=" * 80)
+    print("{:<8}{:<12}{:<24}{}".format("Bước", "h(n)", "h*(n) = cost tối ưu", "Kết luận"))
+    print("-" * 80)
     for k, nd in enumerate(path):
         h_n = heuristic(nd.state, problem)
         h_star = bfs_optimal_cost_from_state(problem, nd.state)
         ok = h_n <= h_star
         rows.append({"step": k, "h": h_n, "h_star": h_star, "ok": ok})
-        print(f"{k:<6}{int(h_n):<10}{h_star:<10}{'Yes' if ok else 'No'}")
-    print("=" * 60)
+        print("{:<8}{:<12}{:<24}{}".format(k, int(h_n), h_star, "Đúng" if ok else "Sai"))
+    print("=" * 80)
     return rows
+
 
 def evaluate_consistency_for_state(problem: EightPuzzleProblem,
                                    heuristic: Callable[[Grid, EightPuzzleProblem], float],
                                    state: Grid) -> List[dict]:
     """
-    Với 1 trạng thái n: kiểm tra mọi successor n' có thỏa h(n) ≤ 1 + h(n')?
-    (mỗi action cost = 1).
+    BẢNG 2 — KIỂM TRA TÍNH CONSISTENT TẠI 1 TRẠNG THÁI
+    Điều kiện: h(n) ≤ 1 + h(n')
     """
     rows: List[dict] = []
     h_n = heuristic(state, problem)
-    print("\nĐÁNH GIÁ CONSISTENCY CHO 1 TRẠNG THÁI")
-    print("=" * 80)
-    header = "{:<12}{:<10}{:<10}{:<12}{}".format("Successor", "h(n)", "h(n')", "1 + h(n')", "Consistent?")
-    print(header)
-    print("-" * 80)
+    print("\nBẢNG 2 — KIỂM TRA TÍNH CONSISTENT TẠI 1 TRẠNG THÁI (h(n) ≤ 1 + h(n'))")
+    print("=" * 110)
+    print("{:<10}{:<10}{:<12}{:<14}{:<12}{}".format(
+        "Kế thừa", "h(n)", "h(n')", "1 + h(n')", "Kết luận", "Hành động"))
+    print("-" * 110)
     idx = 0
     for act in problem.actions(state):
         nstate = problem.result(state, act)
@@ -481,39 +482,36 @@ def evaluate_consistency_for_state(problem: EightPuzzleProblem,
         consistent = h_n <= 1 + h_np
         idx += 1
         rows.append({"k": idx, "action": str(act), "h_n": h_n, "h_np": h_np, "ok": consistent})
-        line = "{:<12}{:<10}{:<10}{:<12}{}  | {}".format(idx, int(h_n), int(h_np), int(1+h_np), "Yes" if consistent else "No", act)
-        print(line)
-    print("=" * 80)
+        print("{:<10}{:<10}{:<12}{:<14}{:<12}{}".format(
+            idx, int(h_n), int(h_np), int(1 + h_np), "Đúng" if consistent else "Sai", act))
+    print("=" * 110)
     return rows
+
 
 def evaluate_consistency_along_path(problem: EightPuzzleProblem,
                                     heuristic: Callable[[Grid, EightPuzzleProblem], float],
                                     solution_node: Node,
                                     max_steps: int = 10) -> List[List[dict]]:
     """
-    Kiểm tra consistency cho tối đa max_steps trạng thái đầu tiên trên đường đi.
+    BẢNG 3 — KIỂM TRA TÍNH CONSISTENT TRÊN K BƯỚC ĐẦU CỦA ĐƯỜNG ĐI NGHIỆM
+    Với mỗi bước k (tối đa max_steps), kiểm tra h(n) ≤ 1 + h(n') cho mọi successor.
     """
     all_rows: List[List[dict]] = []
     path = solution_node.path()
     upto = min(len(path), max_steps)
-    print(f"\nKIỂM TRA CONSISTENCY CHO {upto} TRẠNG THÁI ĐẦU TIÊN TRÊN ĐƯỜNG ĐI")
+    print(f"\nBẢNG 3 — KIỂM TRA TÍNH CONSISTENT TRÊN {upto} BƯỚC ĐẦU CỦA ĐƯỜNG ĐI NGHIỆM")
     for k in range(upto):
-        print(f"\n--- State at step {k} ---")
+        print(f"\n--- Trạng thái tại bước {k} ---")
         rows = evaluate_consistency_for_state(problem, heuristic, path[k].state)
         all_rows.append(rows)
     return all_rows
+
 
 # ------------------------------------------------
 # ======= Render PNG bằng Graphviz + biến thể “đúng n NÚT” =======
 
 def render_search_tree_png(astar: AStar, max_edges: int = 100, filename: str = "search_tree",
                            dot_path: Optional[str] = None):
-    """
-    Render cây tìm kiếm của A* ra PNG (Graphviz).
-    - dot_path: đường dẫn đầy đủ tới dot.exe (vd: r"C:\\Program Files\\Graphviz\\bin\\dot.exe")
-                hoặc thư mục chứa dot.exe (vd: r"C:\\Program Files\\Graphviz\\bin")
-    - Nếu vẫn thiếu 'dot', sẽ ghi DOT để bạn render tay.
-    """
     try:
         from graphviz import Digraph
     except Exception as e:
@@ -598,10 +596,6 @@ def export_dot_by_nodes(astar: AStar, max_nodes: int = 30) -> str:
 
 def render_search_tree_png_by_nodes(astar: AStar, max_nodes: int = 30, filename: str = "search_tree_n",
                                     dot_path: Optional[str] = None):
-    """
-    Vẽ đúng 'max_nodes' NÚT đầu tiên.
-    - dot_path: đường dẫn đầy đủ tới dot.exe hoặc thư mục chứa dot.exe.
-    """
     try:
         from graphviz import Digraph
     except Exception as e:
@@ -702,8 +696,20 @@ if __name__ == "__main__":
     for name, row in summarize_results(res).items():
         print(name, row)
 
+    # Thí nghiệm: h_pair vs BFS
+    res1 = experiment_compare(initials, use_h_corner_max=False)
+    print("\n=== Summary (A*_h0 vs A*_hpair vs BFS) ===")
+    for name, row in summarize_results(res1).items():
+        print(name, row)
+
+    # Thí nghiệm: h_max_pair_corner vs BFS
+    res2 = experiment_compare(initials, use_h_corner_max=True)
+    print("\n=== Summary (A*_h0 vs A*_h_max_pair_corner vs BFS) ===")
+    for name, row in summarize_results(res2).items():
+        print(name.replace("A*_hpair", "A*_h_max_pair_corner"), row)
+
     DOT = r"C:\Program Files\Graphviz\bin\dot.exe"  # hoặc r"C:\Program Files\Graphviz\bin"
-    # 7) Render PNG với giới hạn số cạnh (ví dụ 60 cạnh)
+    # 7) Render PNG với giới hạn số cạnh
     render_search_tree_png(astar, max_edges=60, filename="search_tree_edges", dot_path=DOT)
-    # 8) Render PNG đúng “n NÚT” theo yêu cầu đề (ví dụ 10 nút)
+    # 8) Render PNG đúng “n NÚT” 
     render_search_tree_png_by_nodes(astar, max_nodes=10, filename="search_tree_10_nodes", dot_path=DOT)

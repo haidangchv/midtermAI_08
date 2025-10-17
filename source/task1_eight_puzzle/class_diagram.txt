@@ -1,0 +1,47 @@
+@startuml
+class Problem {
+  + initial: Any
+  + is_goal(state): bool
+  + actions(state): Iterable[Action]
+  + result(state, action): Any
+  + step_cost(state, action, next_state): float
+}
+
+class EightPuzzleProblem {
+  + goals: List<Grid>
+  + is_goal(state): bool
+  + actions(state): Iterable[Action]
+  + result(state, action): Grid
+}
+
+class Action {
+  + kind: str
+  + detail: str
+}
+
+class Node {
+  + f: float
+  + id: int
+  + state: Any
+  + g: float
+  + parent: Node
+  + action: Action
+  + path(): List[Node]
+}
+
+class AStar {
+  + solve(max_expansions=None): Node
+  + export_search_tree_dot(limit_edges=100): str
+}
+
+class BFS {
+  + solve(max_expansions=None): Node
+}
+
+Problem <|-- EightPuzzleProblem
+AStar --> Problem
+BFS --> Problem
+Node --> Action
+AStar --> Node
+BFS --> Node
+@enduml
