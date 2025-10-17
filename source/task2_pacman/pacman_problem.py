@@ -1,16 +1,18 @@
 # source/task2_pacman/pacman_problem.py
 from __future__ import annotations
-from typing import List, Tuple, Iterable, NamedTuple
+from typing import List, Tuple, Iterable, NamedTuple, Dict
+from functools import lru_cache
+from collections import deque
 
 Pos = Tuple[int, int]
 Grid = List[str]
 
+# ---------- các hàm quay lưới/toạ độ ----------
 def rotate_grid_cw(grid: Grid) -> Grid:
     R, C = len(grid), len(grid[0])
     return ["".join(grid[R - 1 - r][c] for r in range(R)) for c in range(C)]
 
 def rot_pos_cw(p: Pos, R: int, C: int) -> Pos:
-    # 90° CW: (r, c) -> (c, R-1-r)
     r, c = p
     return (c, R - 1 - r)
 
@@ -24,50 +26,96 @@ def rot_pos_many(p: Pos, orig_R: int, orig_C: int, k: int) -> Pos:
     r, c = p
     R, C = orig_R, orig_C
     for _ in range(k % 4):
-        (r, c) = (c, R - 1 - r)
+        r, c = (c, R - 1 - r)
         R, C = C, R
     return (r, c)
 
+# ---------- BFS khoảng cách mê cung (không dùng Euclid/Manhattan) ----------
+def _neighbors_grid(g: Grid, r: int, c: int):
+    R, C = len(g), len(g[0])
+    for dr, dc in [(-1,0),(1,0),(0,-1),(0,1)]:
+        nr, nc = r + dr, c + dc
+        if 0 <= nr < R and 0 <= nc < C and g[nr][nc] != '%':
+            yield nr, nc
+
+def _bfs_maze_dist(g: Grid, src: Pos, dst: Pos) -> int:
+    """Khoảng cách ngắn nhất theo lưới (BFS), chặn tường '%'. Trả inf nếu không tới được."""
+    if src == dst:
+        return 0
+    q = deque([src])
+    dist: Dict[Pos, int] = {src: 0}
+    while q:
+        r, c = q.popleft()
+        for nr, nc in _neighbors_grid(g, r, c):
+            if (nr, nc) in dist:
+                continue
+            dist[(nr, nc)] = dist[(r, c)] + 1
+            if (nr, nc) == dst:
+                return dist[(nr, nc)]
+            q.append((nr, nc))
+    return float("inf")
+
+# ---------- Kiểu state ----------
 class Ghost(NamedTuple):
     pos: Pos
-    dir: int  # +1: sang phải, -1: sang trái (trên hàng hiện tại)
+    dir: int  # +1 phải, -1 trái (trên hàng)
 
 class PacmanState(NamedTuple):
     pacman: Pos
     foods: Tuple[Pos, ...]
     pies: Tuple[Pos, ...]
-    ghosts: Tuple[Ghost, ...]  # ma chỉ đi ngang, dội tường
-    ttl: int                   # time-to-live xuyên tường (sau khi ăn 'O')
-    steps_mod30: int           # đếm bước để xoay mê cung
-    rot_idx: int               # số lần xoay 90° CW đã áp dụng (0..3)
+    ghosts: Tuple[Ghost, ...]
+    ttl: int
+    steps_mod30: int
+    rot_idx: int
 
+# ---------- Bài toán ----------
 class PacmanProblem:
     """
-    - Mỗi 30 bước: xoay mê cung 90° CW, đồng thời biến đổi toạ độ của Pacman/food/pies/ghosts/Exit.
-    - Teleport 4 góc: nếu Pacman đứng ở **ô neo** (ô đi được gần mỗi góc nhất),
-      thì có thể thực hiện 1 action teleport đến **bất kỳ** ô neo góc khác (TUL/TUR/TBL/TBR).
-    - Ma: di chuyển ngang mỗi bước (mô phỏng trong Problem); GUI có thể chạy timer riêng nhưng Problem vẫn hợp lệ.
-    - Đụng ma => chuyển trạng thái bị chặn (return None) để BFS/A* không mở rộng.
+    - Mỗi 30 bước: xoay mê cung 90° CW, biến đổi toạ độ Pacman/foods/pies/ghosts/Exit.
+    - Teleport: khi Pacman đứng tại 'ô neo' gần TL/TR/BL/BR (open cell đầu tiên khi quét từ góc),
+      có thể nhảy tới neo tương ứng. Action code: TUL/TUR/TBL/TBR, cost=1.
+      (ĐÃ CẮT NHÁNH: chỉ thêm teleport khi thực sự rút ngắn đường ≥2 bước tới mục tiêu gần nhất.)
+    - Pie 'O': khi ăn -> ttl=5, đi xuyên '%'.
+    - Ma: mỗi bước tick ngang 1 ô; đụng tường đảo chiều; nếu hàng kín thì đứng yên.
+    - Nếu Pacman đụng ma -> transition invalid (return None) để A* không mở rộng.
     """
     def __init__(self, grid: Grid, start: Pos, foods: List[Pos], exit_pos: Pos,
-                 pies: List[Pos] = None, ghosts: List[Tuple[Pos, int]] = None):
+             pies: List[Pos] = None, ghosts: List[Tuple[Pos, int]] = None,
+             ttl0: int = 0, steps_mod30_0: int = 0, rot_idx0: int = 0):
         self.orig_grid = grid
         self.orig_R, self.orig_C = len(grid), len(grid[0])
         self.exit_orig = exit_pos
         self.pies_orig = tuple(pies or [])
-        self.ghosts_orig = tuple(Ghost(p, d) for (p, d) in (ghosts or []))
+
+        safe_ghosts = []
+        for g in (ghosts or []):
+            try:
+                if isinstance(g, dict):
+                    pos = tuple(g.get("pos"))
+                    d = int(g.get("dir", +1))
+                else:
+                    pos, d = g  # kỳ vọng ((r,c), dir) hoặc [(r,c), dir]
+                    pos = tuple(pos); d = int(d)
+                d = +1 if d not in (-1, +1) else d
+                safe_ghosts.append(Ghost(pos, d))
+            except Exception:
+                # bỏ qua phần tử ghost lỗi thay vì raise
+                continue
+        self.ghosts_orig = tuple(safe_ghosts)
 
         self._start = PacmanState(
             pacman=start,
             foods=tuple(foods),
             pies=self.pies_orig,
             ghosts=self.ghosts_orig,
-            ttl=0,
-            steps_mod30=0,
-            rot_idx=0,
+            ttl=ttl0,
+            steps_mod30=steps_mod30_0 % 30,
+            rot_idx=rot_idx0 % 4,
         )
 
-    # ---------------- helpers ----------------
+
+    # ---------- helpers ----------
     def _current_grid(self, rot_idx: int) -> Grid:
         return rotate_many(self.orig_grid, rot_idx)
 
@@ -79,43 +127,38 @@ class PacmanProblem:
         R, C = len(g), len(g[0])
         if 0 <= r < R and 0 <= c < C:
             return g[r][c] == '%'
-        return True  # ra ngoài = như tường
+        return True
 
-    # ---- tìm ô neo (ô đi được gần mỗi góc nhất) ----
+    # ----- corner anchors (ô đi được gần 4 góc) -----
     def _first_open_from_top_left(self, g: Grid) -> Pos:
         R, C = len(g), len(g[0])
         for r in range(R):
             for c in range(C):
-                if g[r][c] != '%':
-                    return (r, c)
+                if g[r][c] != '%': return (r, c)
         return (0, 0)
 
     def _first_open_from_top_right(self, g: Grid) -> Pos:
         R, C = len(g), len(g[0])
         for r in range(R):
-            for c in range(C - 1, -1, -1):
-                if g[r][c] != '%':
-                    return (r, c)
-        return (0, C - 1)
+            for c in range(C-1, -1, -1):
+                if g[r][c] != '%': return (r, c)
+        return (0, C-1)
 
     def _first_open_from_bottom_left(self, g: Grid) -> Pos:
         R, C = len(g), len(g[0])
-        for r in range(R - 1, -1, -1):
+        for r in range(R-1, -1, -1):
             for c in range(C):
-                if g[r][c] != '%':
-                    return (r, c)
-        return (R - 1, 0)
+                if g[r][c] != '%': return (r, c)
+        return (R-1, 0)
 
     def _first_open_from_bottom_right(self, g: Grid) -> Pos:
         R, C = len(g), len(g[0])
-        for r in range(R - 1, -1, -1):
-            for c in range(C - 1, -1, -1):
-                if g[r][c] != '%':
-                    return (r, c)
-        return (R - 1, C - 1)
+        for r in range(R-1, -1, -1):
+            for c in range(C-1, -1, -1):
+                if g[r][c] != '%': return (r, c)
+        return (R-1, C-1)
 
-    def _corner_anchor_positions(self, rot_idx: int):
-        """Trả về 4 ô neo (đi được) gần TL/TR/BL/BR nhất của grid hiện tại."""
+    def _corner_anchor_positions(self, rot_idx: int) -> Dict[str, Pos]:
         g = self._current_grid(rot_idx)
         return {
             "TUL": self._first_open_from_top_left(g),
@@ -132,11 +175,9 @@ class PacmanProblem:
             r, c = gh.pos
             d = gh.dir
             nc = c + d
-            # va tường? -> đảo chiều và bước 1 ô
             if not (0 <= r < R and 0 <= nc < C) or g[r][nc] == '%':
                 d = -d
                 nc = c + d
-                # nếu vẫn tường (hàng bị kín), đứng yên
                 if not (0 <= r < R and 0 <= nc < C) or g[r][nc] == '%':
                     out.append(Ghost((r, c), d))
                     continue
@@ -144,7 +185,6 @@ class PacmanProblem:
         return tuple(out)
 
     def _rotate_world(self, s: PacmanState) -> PacmanState:
-        """Xoay mê cung + biến đổi tất cả toạ độ 90° CW"""
         rnew = (s.rot_idx + 1) % 4
         cur_R, cur_C = len(self._current_grid(s.rot_idx)), len(self._current_grid(s.rot_idx)[0])
 
@@ -155,7 +195,13 @@ class PacmanProblem:
 
         return PacmanState(pac, foods, pies, ghosts, s.ttl, s.steps_mod30, rnew)
 
-    # --------------- Problem API ---------------
+    # ----- cache maze distance theo rot_idx -----
+    @lru_cache(maxsize=100_000)
+    def _maze_dist_cached(self, rot_idx: int, src: Pos, dst: Pos) -> int:
+        g = self._current_grid(rot_idx)
+        return _bfs_maze_dist(g, src, dst)
+
+    # ---------- API ----------
     def initial_state(self) -> PacmanState:
         return self._start
 
@@ -163,12 +209,26 @@ class PacmanProblem:
         return len(s.foods) == 0 and s.pacman == self._exit_at(s.rot_idx)
 
     def actions(self, s: PacmanState) -> Iterable[str]:
-        base = ["N", "S", "E", "W"]
+        """
+        Trả về tập action cho trạng thái s.
+        - ƯU TIÊN TELEPORT: nếu Pacman đang đứng tại một ô neo (gần TL/TR/BL/BR),
+        luôn thêm 4 action teleport và đặt CHÚNG LÊN TRƯỚC để A* thử trước.
+        - Không dùng Stop.
+        """
+        # các hướng di chuyển cơ bản
+        move_actions = ["N", "S", "E", "W"]
+
+        # kiểm tra neo hiện tại theo lưới đã xoay
         anchors = self._corner_anchor_positions(s.rot_idx)
-        # nếu đang ở một ô neo -> có thêm 4 action teleport
-        if s.pacman in anchors.values():
-            return base + ["TUL", "TUR", "TBL", "TBR"]
-        return base
+        at_anchor = s.pacman in anchors.values()
+
+        if at_anchor:
+            # ƯU TIÊN TELEPORT: đưa teleport lên ĐẦU danh sách
+            tp_actions = ["TUL", "TUR", "TBL", "TBR"]
+            return tp_actions + move_actions
+
+        return move_actions
+
 
     def result(self, s: PacmanState, a: str) -> PacmanState | None:
         g = self._current_grid(s.rot_idx)
@@ -179,26 +239,28 @@ class PacmanProblem:
         nr, nc = r, c
         ttl = max(0, s.ttl - 1)
 
+        # 1) Di chuyển Pacman (tường xuyên nếu ttl>0)
         if a in ("N", "S", "E", "W"):
             drdc = {"N": (-1, 0), "S": (1, 0), "W": (0, -1), "E": (0, 1)}
             dr, dc = drdc[a]
             tr, tc = r + dr, c + dc
-            # di chuyển thường: bị tường thì đứng yên (trừ khi TTL>0)
             if 0 <= tr < R and 0 <= tc < C:
                 if g[tr][tc] != '%' or ttl > 0:
                     nr, nc = tr, tc
-            # ra ngoài lưới coi như tường -> đứng yên
-
         elif a in ("TUL", "TUR", "TBL", "TBR"):
-            # chỉ hợp lệ nếu ĐANG đứng ở MỘT ô neo
             if s.pacman not in anchors.values():
                 return None
             nr, nc = anchors[a]
-
         else:
-            return None  # action lạ
+            return None
 
-        # ăn food/pie
+        # 2) Va chạm TRƯỚC tick: Pacman bước vào ô có ma hiện tại?
+        if ttl == 0:
+            for gh in s.ghosts:
+                if gh.pos == (nr, nc):
+                    return None  # bị bắt ngay
+
+        # 3) Ăn food/pie
         foods = list(s.foods)
         if (nr, nc) in foods:
             foods.remove((nr, nc))
@@ -207,22 +269,26 @@ class PacmanProblem:
             pies.remove((nr, nc))
             ttl = 5
 
-        # ma di chuyển
-        ghosts = self._move_ghosts(s.rot_idx, s.ghosts)
+        # 4) Ma di chuyển
+        old_ghosts = s.ghosts
+        ghosts = self._move_ghosts(s.rot_idx, old_ghosts)
 
-        # va chạm ma? loại trừ trạng thái
-        for gh in ghosts:
-            if gh.pos == (nr, nc):
-                return None  # bị bắt -> coi như transition không hợp lệ
+        # 5) Va chạm SAU tick + GIAO CẮT CẠNH
+        #   - sau tick: ma ở ô mới trùng pacman
+        #   - swap: ma đi từ (nr,nc) -> (r,c) trong khi pacman từ (r,c) -> (nr,nc)
+        for gh_old, gh_new in zip(old_ghosts, ghosts):
+            if gh_new.pos == (nr, nc):  # sau tick
+                return None
+            if gh_old.pos == (nr, nc) and gh_new.pos == (r, c):  # swap cạnh
+                return None
 
-        # tăng steps_mod30, nếu chẵn 30 -> xoay mê cung
+        # 6) Tick xoay mỗi 30 bước
         steps_mod30 = (s.steps_mod30 + 1) % 30
-        new_state = PacmanState((nr, nc), tuple(foods), tuple(pies),
-                                ghosts, ttl, steps_mod30, s.rot_idx)
+        new_state = PacmanState((nr, nc), tuple(foods), tuple(pies), ghosts, ttl, steps_mod30, s.rot_idx)
         if steps_mod30 == 0:
             new_state = self._rotate_world(new_state)
-
         return new_state
+
 
     def step_cost(self, s: PacmanState, a: str, s2: PacmanState) -> float:
         return 1.0

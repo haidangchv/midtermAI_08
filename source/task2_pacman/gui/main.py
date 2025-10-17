@@ -1,27 +1,66 @@
-import pygame
+# source/task2_pacman/gui/main.py
+# GUI pygame: manual + AUTO (A* actions), ghost tick-theo-bước, auto scaling,
+# rotate 90° mỗi 30 bước, teleport anchors, HUD FOOD LEFT & PAC(r,c),
+# I/O path.txt & output.txt (output dir = source/task2_pacman/output),
+# AUTO có cooldown và REPLAN nền (thread) mỗi khi xoay để tránh đơ UI.
+
+try:
+    import pygame
+except Exception as e:
+    print("Pygame is required for the GUI. Install with: pip install pygame")
+    print("Detail:", e)
+    raise SystemExit(0)
+
 import sys, os
+import threading
 from typing import List, Tuple, Set
 
-# ----- IMPORT PATHS -----
+# ----- FIX IMPORT PATHS -----
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))           # .../source/task2_pacman/gui
 TASK2_DIR = os.path.abspath(os.path.join(BASE_DIR, ".."))       # .../source/task2_pacman
 sys.path.insert(0, TASK2_DIR)
 
 from pacman_problem import PacmanProblem
-from heuristics import HeuristicPacmanMST
+from heuristics import HeuristicMazeMST
 from astar import astar
+
+# ----- I/O PATHS -----
+REPO_ROOT = os.path.abspath(os.path.join(TASK2_DIR, "..", ".."))
+INPUT_DIR = os.path.join(REPO_ROOT, "input")  # dò input ở gốc dự án\input
+OUTPUT_DIR = os.path.join(TASK2_DIR, "output")  # theo yêu cầu: source\task2_pacman\output
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+def resolve_layout_path(cli_path=None):
+    filename = "task02_pacman_example_map.txt"
+    candidates = []
+    if cli_path:
+        candidates.append(cli_path)
+    candidates += [
+        os.path.join(REPO_ROOT, "input", filename),
+        os.path.join(TASK2_DIR, "input", filename),   # hỗ trợ nếu để tại source\task2_pacman\input
+        os.path.join(REPO_ROOT, filename),
+        os.path.join(TASK2_DIR, filename),
+        os.path.join(os.path.dirname(__file__), filename),
+    ]
+    for p in candidates:
+        if os.path.isfile(p):
+            return p
+    raise FileNotFoundError(
+        "Không tìm thấy file layout. Đặt file vào 'input/task02_pacman_example_map.txt' "
+        "hoặc truyền đường dẫn khi chạy."
+    )
+
+CLI_LAYOUT = sys.argv[1] if len(sys.argv) > 1 else None
+DEFAULT_LAYOUT_PATH = resolve_layout_path(CLI_LAYOUT)
+
+PATH_TXT = os.path.join(OUTPUT_DIR, "path.txt")
+OUT_TXT  = os.path.join(OUTPUT_DIR, "output.txt")
 
 # ----- CONSTANTS -----
 CELL_LOGICAL = 32
-HUD_H = 76            
+HUD_H = 84
 FPS = 30
-
-# Ghost moves (ms)
-GHOST_MOVE_MS = 150
-GHOST_EVENT = pygame.USEREVENT + 1
-
-# Layout
-DEFAULT_LAYOUT_PATH = os.path.abspath(os.path.join(TASK2_DIR, "..", "..", "task02_pacman_example_map.txt"))
+AUTO_STEP_COOLDOWN_FRAMES = 8  # auto chậm rãi
 
 # ----- FILE / GRID UTILS -----
 def load_layout_file(path: str) -> List[str]:
@@ -50,7 +89,7 @@ def parse_grid(grid: List[str]):
             elif ch == '.': foods.add((r,c))
             elif ch == 'E': exit_pos = (r,c)
             elif ch == 'O': pies.add((r,c))
-            elif ch == 'G': ghosts.append([(r,c), +1])  # [pos, dir]
+            elif ch == 'G': ghosts.append([(r,c), +1])
     if start is None or exit_pos is None:
         raise ValueError("Layout cần có 'P' (start) và 'E' (exit).")
     return start, foods, exit_pos, pies, ghosts
@@ -62,7 +101,6 @@ def is_wall(grid: List[str], r: int, c: int) -> bool:
     return True
 
 def move_ghosts(grid: List[str], ghosts):
-    # đi ngang, đụng tường thì đảo chiều rồi thử bước
     R, C = len(grid), len(grid[0])
     out = []
     for (r,c), d in ghosts:
@@ -86,7 +124,79 @@ def rotate_world(grid, pac, foods, pies, ghosts, exit_pos):
     new_ghosts = [[rot_pos_cw(pos, R, C), d] for (pos, d) in ghosts]
     return new_grid, new_pac, new_foods, new_pies, new_ghosts, new_exit
 
-# ---- corner anchors ----
+def _to_pos(x):
+    """Trả tuple (r,c) nếu hợp lệ, ngược lại trả None."""
+    try:
+        r, c = x
+        if isinstance(r, int) and isinstance(c, int):
+            return (r, c)
+    except Exception:
+        pass
+    return None
+
+def sanitize_inputs(grid, pac, foods, pies, ghosts, exit_pos):
+    """
+    Chuẩn hoá & lọc rác:
+    - pac, exit_pos: (r,c)
+    - foods, pies: set[(r,c)]
+    - ghosts: list[((r,c), dir)] với dir ∈ {-1, +1}
+    Trả về tuple (pac, foods, pies, ghosts, exit_pos). Nếu có lỗi -> cố gắng sửa, cùng lắm trả cấu trúc rỗng an toàn.
+    """
+    # pac
+    pac_t = _to_pos(pac) if pac is not None else None
+    if pac_t is None:
+        pac_t = (0, 0)  # fallback an toàn
+
+    # exit
+    exit_t = _to_pos(exit_pos) if exit_pos is not None else None
+    if exit_t is None:
+        # nếu thiếu exit, giữ (0,0) để A* fail sớm và code vẫn không sập
+        exit_t = (0, 0)
+
+    # foods
+    foods_set = set()
+    try:
+        for p in list(foods):
+            pt = _to_pos(p)
+            if pt is not None:
+                foods_set.add(pt)
+    except Exception:
+        foods_set = set()
+
+    # pies
+    pies_set = set()
+    try:
+        for p in list(pies):
+            pt = _to_pos(p)
+            if pt is not None:
+                pies_set.add(pt)
+    except Exception:
+        pies_set = set()
+
+    # ghosts
+    ghosts_list = []
+    try:
+        for g in list(ghosts):
+            # chấp nhận [(r,c), d] hoặc ((r,c), d) hoặc dict {'pos':(r,c),'dir':d}
+            pos = None; d = None
+            if isinstance(g, dict):
+                pos = _to_pos(g.get("pos"))
+                d = g.get("dir", +1)
+            else:
+                # tuple/list 2 phần tử
+                if isinstance(g, (list, tuple)) and len(g) == 2:
+                    pos = _to_pos(g[0])
+                    d = g[1]
+            if pos is None:
+                continue
+            d = +1 if d not in (-1, +1) else d
+            ghosts_list.append([pos, d])
+    except Exception:
+        ghosts_list = []
+
+    return pac_t, foods_set, pies_set, ghosts_list, exit_t
+
+# ---- corner anchors (ô đi được gần mỗi góc) ----
 def first_open_from_top_left(grid):
     R, C = len(grid), len(grid[0])
     for r in range(R):
@@ -121,16 +231,16 @@ def first_open_from_bottom_right(grid):
 
 def corner_anchors(grid):
     return (
-        first_open_from_top_left(grid),     # TL : index 0
-        first_open_from_top_right(grid),    # TR : index 1
-        first_open_from_bottom_left(grid),  # BL : index 2
-        first_open_from_bottom_right(grid)  # BR : index 3
+        first_open_from_top_left(grid),     # TL -> index 0
+        first_open_from_top_right(grid),    # TR -> index 1
+        first_open_from_bottom_left(grid),  # BL -> index 2
+        first_open_from_bottom_right(grid)  # BR -> index 3
     )
 
 def is_at_anchor(grid, pac):
     return tuple(pac) in set(corner_anchors(grid))
 
-# ----- auto fit to window -----
+# ----- SURFACE / SCALING -----
 def make_logical_surface(grid: List[str]):
     w = len(grid[0]) * CELL_LOGICAL
     h = len(grid) * CELL_LOGICAL + HUD_H
@@ -156,12 +266,11 @@ def scale_and_present(screen, logical_surface):
     else:
         screen.blit(logical_surface, rect.topleft)
 
-# ----- DRAW -----
+# ----- DRAW / HUD -----
 def draw_grid(surface, grid, pac, foods, exit_pos, pies, ghosts, ttl, step_mod, auto_mode):
     surface.fill((0,0,0,0))
     R, C = len(grid), len(grid[0])
 
-    # Tiles + collectibles + exit
     for r in range(R):
         for c in range(C):
             rect = pygame.Rect(c*CELL_LOGICAL, r*CELL_LOGICAL, CELL_LOGICAL, CELL_LOGICAL)
@@ -178,16 +287,13 @@ def draw_grid(surface, grid, pac, foods, exit_pos, pies, ghosts, ttl, step_mod, 
             if exit_pos == (r,c):
                 pygame.draw.rect(surface, (0,120,200), rect, 2)
 
-    # ghosts
-    for (gr, gc), d in ghosts:
+    for (gr, gc), _ in ghosts:
         grect = pygame.Rect(gc*CELL_LOGICAL, gr*CELL_LOGICAL, CELL_LOGICAL, CELL_LOGICAL)
         pygame.draw.circle(surface, (200,50,50), grect.center, CELL_LOGICAL//3)
 
-    # pacman
     prect = pygame.Rect(pac[1]*CELL_LOGICAL, pac[0]*CELL_LOGICAL, CELL_LOGICAL, CELL_LOGICAL)
     pygame.draw.circle(surface, (255,200,0), prect.center, CELL_LOGICAL//2 - 2)
 
-    # Vẽ góc neo (cyan)
     for (gr, gc) in corner_anchors(grid):
         corner_rect = pygame.Rect(gc*CELL_LOGICAL, gr*CELL_LOGICAL, CELL_LOGICAL, CELL_LOGICAL)
         pygame.draw.rect(surface, (0, 200, 255), corner_rect, 2)
@@ -196,64 +302,21 @@ def draw_grid(surface, grid, pac, foods, exit_pos, pies, ghosts, ttl, step_mod, 
     font = pygame.font.SysFont(None, 20)
     y0 = CELL_LOGICAL*len(grid) + 6
     remaining = len(foods)
-
-    # Dòng 1: trạng thái + FOOD LEFT
     hud = font.render(
-        f"TTL: {ttl}   step%30: {step_mod}   AUTO: {'ON' if auto_mode else 'OFF'}   FOOD LEFT: {remaining}",
+        f"TTL: {ttl}   step%30: {step_mod}   AUTO: {'ON' if auto_mode else 'OFF'}   "
+        f"FOOD LEFT: {remaining}   PAC: ({pac[0]},{pac[1]})",
         True, (255,255,255)
     )
     surface.blit(hud, (8, y0))
-
-    # Dòng 2: hint teleport nếu đang ở neo
     if is_at_anchor(grid, pac):
-        hint = font.render("Press shift 1–4 to teleport (TL, TR, BL, BR)", True, (0, 200, 255))
+        hint = font.render("Press 1–4 to teleport (TL, TR, BL, BR)", True, (0, 200, 255))
         surface.blit(hint, (8, y0 + 20))
-
-    # Dòng 3: nếu đứng ở EXIT nhưng chưa đủ food, báo dưới HUD
     if tuple(pac) == exit_pos and remaining > 0:
         warn = font.render(f"⚠ Need {remaining} more food before EXIT!", True, (255, 200, 0))
         surface.blit(warn, (8, y0 + 40))
 
-# ----- COMPLETED OVERLAY -----
-def draw_completed_overlay(screen, logical_surface):
-    """Vẽ overlay 'Completed' (không nằm trong HUD)."""
-    # scale logical -> rect để biết vùng nội dung
-    dst = compute_scaled_rect(screen.get_size(), logical_surface.get_size())
-
-    # lớp mờ toàn màn hình
-    overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
-    overlay.fill((0, 0, 0, 180))  # đen mờ
-    screen.blit(overlay, (0, 0))
-
-    # hộp thông điệp
-    box_w, box_h = int(dst.width * 0.7), int(dst.height * 0.35)
-    box_x = (screen.get_width() - box_w)//2
-    box_y = (screen.get_height() - box_h)//2
-    box = pygame.Rect(box_x, box_y, box_w, box_h)
-    pygame.draw.rect(screen, (30, 30, 30), box, border_radius=12)
-    pygame.draw.rect(screen, (80, 200, 170), box, 2, border_radius=12)
-
-    title_font = pygame.font.SysFont(None, 48)
-    text_font  = pygame.font.SysFont(None, 28)
-
-    title = title_font.render("COMPLETED!", True, (80, 255, 200))
-    tip   = text_font.render("Press R to restart — Press Q or Esc to quit", True, (230, 230, 230))
-
-    screen.blit(title, (box.centerx - title.get_width()//2, box_y + 28))
-    screen.blit(tip,   (box.centerx - tip.get_width()//2,   box_y + box_h - 28 - tip.get_height()))
-
-def handle_completed_input(screen, logical_surface, reset_game_cb):
-    import pygame
-    keys = pygame.key.get_pressed()
-    if keys[pygame.K_r]:
-        reset_game_cb()
-        return "restart"
-    if keys[pygame.K_q] or keys[pygame.K_ESCAPE]:
-        return "quit"
-    return None
-
+# ----- OVERLAYS / RESET -----
 def show_center_message(screen, text, millis=1200):
-    """Hiện thông báo giữa cửa sổ trong millis ms."""
     screen.fill((0, 0, 0))
     font_big = pygame.font.SysFont(None, 48)
     font_small = pygame.font.SysFont(None, 24)
@@ -277,25 +340,187 @@ def reset_game_state():
     auto_plan = []
     return grid, pac, foods, exit_pos, pies, ghosts, ttl, step_mod, logical_surface, auto_mode, auto_plan
 
+# ----- ACTION EXECUTOR -----
+def apply_action_step(a, grid, pac, foods, pies, ghosts, exit_pos, ttl, step_mod, screen, logical_surface):
+    """
+    Thực thi 1 action (N/S/E/W hoặc TUL/TUR/TBL/TBR) với tick ma + rotate 30 bước.
+    Trả về: (grid, pac(list), foods(set), pies(set), ghosts(list), exit_pos, ttl, step_mod, logical_surface, died, rotated)
+    """
+    R, C = len(grid), len(grid[0])
+    nr, nc = pac[0], pac[1]
 
-# ----- MAIN LOOP -----
-def main():
-    def reset_game():
-        nonlocal grid, start, foods, exit_pos, pies, ghosts, pac, ttl, step_mod
-        nonlocal logical_surface, auto_mode, auto_plan, auto_tick_cooldown, game_completed
-        grid = load_layout_file(DEFAULT_LAYOUT_PATH)
-        start, foods, exit_pos, pies, ghosts = parse_grid(grid)
-        pac = list(start)
-        ttl = 0
-        step_mod = 0
+    if a in ("N","S","E","W"):
+        drdc = {"N":(-1,0),"S":(1,0),"W":(0,-1),"E":(0,1)}
+        dr, dc = drdc[a]
+        tr, tc = nr + dr, nc + dc
+        if 0 <= tr < R and 0 <= tc < C:
+            if grid[tr][tc] != '%' or ttl > 0:
+                nr, nc = tr, tc
+    elif a in ("TUL","TUR","TBL","TBR"):
+        anchors = corner_anchors(grid)
+        if tuple(pac) in set(anchors):
+            idx = {"TUL":0,"TUR":1,"TBL":2,"TBR":3}[a]
+            nr, nc = anchors[idx]
+    else:
+        pass  # không đổi
+
+    pac = [nr, nc]
+    step_mod = (step_mod + 1) % 30
+    ttl = max(0, ttl - 1)
+
+    if tuple(pac) in foods:
+        foods.remove(tuple(pac))
+    if tuple(pac) in pies:
+        ttl = 5
+        pies.remove(tuple(pac))
+
+    ghosts = move_ghosts(grid, ghosts)
+    for (gr,gc), _ in ghosts:
+        if (gr,gc) == tuple(pac):
+            show_center_message(screen, "💥 Bị ma bắt!")
+            return grid, pac, foods, pies, ghosts, exit_pos, ttl, step_mod, logical_surface, True, False
+
+    rotated = False
+    if step_mod == 0:
+        grid, pac, foods, pies, ghosts, exit_pos = rotate_world(
+            grid, tuple(pac), foods, pies, ghosts, exit_pos
+        )
+        pac = list(pac)
         logical_surface = make_logical_surface(grid)
-        auto_mode = False
-        auto_plan = []
-        auto_tick_cooldown = 0
-        game_completed = False
-        pygame.time.set_timer(GHOST_EVENT, GHOST_MOVE_MS)  # bật lại ghost timer
+        rotated = True
 
-    # Khởi tạo ban đầu
+    return grid, pac, foods, pies, ghosts, exit_pos, ttl, step_mod, logical_surface, False, rotated
+
+# ----- I/O output -----
+def write_outputs(path_coords, actions, cost):
+    # path.txt: toạ độ mỗi bước (bỏ state đầu)
+    with open(PATH_TXT, "w", encoding="utf-8") as f:
+        for (r, c) in path_coords:
+            f.write(f"{r} {c}\n")
+    # output.txt: cost + actions (North/East/West/South/Stop); teleport -> Stop
+    name_map = {
+        "N": "North",
+        "S": "South",
+        "E": "East",
+        "W": "West",
+        # Teleport không nằm trong schema -> ghi 'Stop'
+        "TUL": "Stop", "TUR": "Stop", "TBL": "Stop", "TBR": "Stop",
+    }
+    pretty_actions = [name_map.get(a, "West") for a in actions]
+    with open(OUT_TXT, "w", encoding="utf-8") as f:
+        f.write(f"cost: {int(cost) if cost == int(cost) else cost}\n")
+        f.write("actions: " + " ".join(pretty_actions) + "\n")
+
+# ----- PLANNER -----
+def _run_astar_safe(problem, hz, goal_fn=None):
+    """Gọi astar với/không với max_expanded; LUÔN trả dict hoặc {}."""
+    try:
+        try:
+            res = astar(problem, hz, graph_search=True, goal_fn=goal_fn, max_expanded=200000)
+        except TypeError:
+            res = astar(problem, hz, graph_search=True, goal_fn=goal_fn)
+    except Exception as e:
+        print("[A*] Exception:", e)
+        return {}
+    return res if isinstance(res, dict) else {}
+
+
+def plan_from_snapshot(grid, pac, foods, pies, ghosts, exit_pos, ttl, step_mod):
+    """
+    Lập kế hoạch (A*): ăn food gần nhất theo cost rồi đến Exit.
+    LUÔN trả (actions, path_coords, cost). Nếu không tìm được plan, trả ([], [], 0.0).
+    """
+    try:
+        # Chuẩn hoá dữ liệu vào để tránh unpack lỗi
+        pac, foods, pies, ghosts, exit_pos = sanitize_inputs(grid, pac, foods, pies, ghosts, exit_pos)
+
+        cur_grid   = list(grid)
+        cur_pac    = tuple(pac)
+        cur_foods  = sorted(list(foods))
+        cur_pies   = sorted(list(pies))
+        cur_ghosts = [(tuple(pos), d) for (pos, d) in ghosts]  # đảm bảo dạng ((r,c), d)
+        cur_exit   = exit_pos
+        cur_ttl    = int(ttl) if isinstance(ttl, int) else 0
+        cur_step   = int(step_mod) % 30 if isinstance(step_mod, int) else 0
+
+        total_actions, total_coords, total_cost = [], [], 0.0
+
+        while True:
+            # Chặng cuối: tới Exit
+            if len(cur_foods) == 0:
+                prob = PacmanProblem(cur_grid, cur_pac, cur_foods, cur_exit,
+                                     pies=cur_pies, ghosts=cur_ghosts,
+                                     ttl0=cur_ttl, steps_mod30_0=cur_step, rot_idx0=0)
+                from heuristics import HeuristicMazeMST
+                hz = HeuristicMazeMST(prob)
+                res = _run_astar_safe(prob, hz, goal_fn=None)
+
+                if not res or not res.get("solution"):
+                    return total_actions, total_coords, total_cost
+
+                states, actions = res["solution"], res["actions"]
+                # states là list PacmanState; room cho lỗi None
+                for s in states[1:]:
+                    if s is not None:
+                        total_coords.append(s.pacman)
+                total_actions.extend(actions if actions else [])
+                total_cost += float(res.get("cost", 0.0))
+                return total_actions, total_coords, total_cost
+
+            # Còn food: thử tới “một food bất kỳ”, chọn cost nhỏ nhất
+            best = None
+            target_count_after = len(cur_foods) - 1
+
+            def goal_fn(s, target_count=target_count_after):
+                return (s is not None) and (len(s.foods) == target_count)
+
+            for _ in list(cur_foods):
+                prob = PacmanProblem(cur_grid, cur_pac, cur_foods, cur_exit,
+                                     pies=cur_pies, ghosts=cur_ghosts,
+                                     ttl0=cur_ttl, steps_mod30_0=cur_step, rot_idx0=0)
+                from heuristics import HeuristicMazeMST
+                hz = HeuristicMazeMST(prob)
+                res = _run_astar_safe(prob, hz, goal_fn=goal_fn)
+
+                if not res or not res.get("solution"):
+                    continue
+
+                cand_cost = float(res.get("cost", float("inf")))
+                if (best is None) or (cand_cost < best[0]):
+                    best = (cand_cost, res)
+
+            if best is None:
+                # Không tìm được food nào an toàn -> trả những gì đã có
+                return total_actions, total_coords, total_cost
+
+            _, res = best
+            states, actions = res["solution"], res["actions"]
+            for s in states[1:]:
+                if s is not None:
+                    total_coords.append(s.pacman)
+            total_actions.extend(actions if actions else [])
+            total_cost += float(res.get("cost", 0.0))
+
+            # cập nhật snapshot theo state cuối chặng
+            s_last = states[-1] if states else None
+            if s_last is None:
+                return total_actions, total_coords, total_cost
+
+            cur_pac    = s_last.pacman
+            cur_foods  = list(s_last.foods)
+            cur_pies   = list(s_last.pies)
+            cur_ghosts = [(g.pos, g.dir) for g in s_last.ghosts]
+            cur_ttl    = s_last.ttl
+            cur_step   = s_last.steps_mod30
+
+    except Exception as e:
+        print("[PLAN] Exception in plan_from_snapshot:", e)
+        return [], [], 0.0
+
+
+
+# ----- MAIN -----
+def main():
     grid = load_layout_file(DEFAULT_LAYOUT_PATH)
     start, foods, exit_pos, pies, ghosts = parse_grid(grid)
     pac = list(start)
@@ -307,17 +532,67 @@ def main():
     start_w = int(info.current_w * 0.9)
     start_h = int(info.current_h * 0.9)
     screen = pygame.display.set_mode((start_w, start_h), pygame.RESIZABLE)
-    pygame.display.set_caption("Pacman")
+    pygame.display.set_caption("Pacman – A* actions, ghost-per-step, teleport anchors, BG replan on rotation")
     clock = pygame.time.Clock()
 
     logical_surface = make_logical_surface(grid)
 
-    # Timers & flags
-    pygame.time.set_timer(GHOST_EVENT, GHOST_MOVE_MS)
+    # AUTO runtime
     auto_mode = False
-    auto_plan = []
-    auto_tick_cooldown = 0
-    game_completed = False   # NEW: khi True, hiện overlay, khoá điều khiển
+    auto_step_cooldown = 0
+    globals()["__GUI_AUTO_ACTIONS__"] = []
+
+    # Replan nền (thread)
+    planning_busy = False
+    globals()["__PLANNER_THREAD__"] = None
+    globals()["__PLANNER_DONE__"] = False
+    globals()["__PLANNER_RESULT__"] = []
+
+    def reset_game():
+        nonlocal grid, pac, foods, exit_pos, pies, ghosts, ttl, step_mod, logical_surface, auto_mode, auto_step_cooldown, planning_busy
+        (grid, pac, foods, exit_pos, pies, ghosts,
+         ttl, step_mod, logical_surface, auto_mode, _) = reset_game_state()
+        auto_step_cooldown = 0
+        globals()["__GUI_AUTO_ACTIONS__"] = []
+        # reset planner thread flags
+        planning_busy = False
+        globals()["__PLANNER_THREAD__"] = None
+        globals()["__PLANNER_DONE__"] = False
+        globals()["__PLANNER_RESULT__"] = []
+
+    def spawn_replan_background():
+        """Khởi tạo replan nền từ snapshot hiện tại; UI vẫn mượt."""
+        nonlocal planning_busy
+        if planning_busy:
+            return  # đã có replan đang chạy
+
+        planning_busy = True
+        globals()["__PLANNER_DONE__"] = False
+        globals()["__PLANNER_RESULT__"] = []
+
+        # snapshot an toàn (copy cấu trúc thay đổi)
+        snap_grid   = list(grid)
+        snap_pac    = tuple(pac)
+        snap_foods  = set(foods)
+        snap_pies   = set(pies)
+        snap_ghosts = [(tuple(pos), d) for (pos, d) in ghosts]
+        snap_exit   = exit_pos
+        snap_ttl    = ttl
+        snap_step   = step_mod
+
+        def _worker():
+            try:
+                acts, _, _ = plan_from_snapshot(
+                    snap_grid, snap_pac, snap_foods, snap_pies, snap_ghosts, snap_exit, snap_ttl, snap_step
+                )
+            except Exception:
+                acts = []
+            globals()["__PLANNER_RESULT__"] = acts
+            globals()["__PLANNER_DONE__"] = True
+
+        t = threading.Thread(target=_worker, daemon=True)
+        globals()["__PLANNER_THREAD__"] = t
+        t.start()
 
     running = True
     while running:
@@ -325,38 +600,39 @@ def main():
             if event.type == pygame.QUIT:
                 running = False
 
-            # Resize 
             elif event.type == pygame.VIDEORESIZE or event.type == pygame.WINDOWSIZECHANGED:
                 pass
 
-            # Ghosts move
-            elif event.type == GHOST_EVENT and not game_completed:
-                ghosts = move_ghosts(grid, ghosts)
-                # check after ghost move
-                for (gr, gc), _ in ghosts:
-                    if (gr, gc) == tuple(pac):
-                        print("Bị ma bắt! (ghost timer)")
-                        show_center_message(screen, "Bị ma bắt!")
-                        reset_game()
-                        break
-
             elif event.type == pygame.KEYDOWN:
-                # xử lý R / Q / Esc
-                if game_completed:
-                    if event.key in (pygame.K_q, pygame.K_ESCAPE):
-                        running = False
-                    elif event.key in (pygame.K_r, ):
-                        reset_game()
-                    continue 
+                if event.key in (pygame.K_q, pygame.K_ESCAPE):
+                    running = False
+                    continue
 
-                dr = dc = 0
-                if event.key == pygame.K_UP: dr = -1
-                elif event.key == pygame.K_DOWN: dr = +1
-                elif event.key == pygame.K_LEFT: dc = -1
-                elif event.key == pygame.K_RIGHT: dc = +1
+                # Plan A* theo chặng (ăn food gần nhất -> đến Exit) và ghi output
+                if event.key == pygame.K_a:
+                    auto_mode = not auto_mode
+                    auto_step_cooldown = 0
+                    globals()["__GUI_AUTO_ACTIONS__"] = []
+                    if auto_mode:
+                        try:
+                            actions, coords, total_cost = plan_from_snapshot(
+                                grid, pac, foods, pies, ghosts, exit_pos, ttl, step_mod
+                            )
+                            if not actions:
+                                print("[AUTO] No plan.")
+                                auto_mode = False
+                                continue
+                            write_outputs(coords, actions, total_cost)  # ghi file nộp
+                            globals()["__GUI_AUTO_ACTIONS__"] = list(actions)
+                            print(f"[AUTO] Planned len={len(actions)} cost={total_cost}")
+                        except Exception as e:
+                            print("[AUTO] Planning error:", e)
+                            auto_mode = False
+                            globals()["__GUI_AUTO_ACTIONS__"] = []
+                    continue
 
-                # --- TELEPORT ---
-                elif event.key in (
+                # Teleport 1–4 / numpad 1–4 (manual)
+                if event.key in (
                     pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4,
                     pygame.K_KP1, pygame.K_KP2, pygame.K_KP3, pygame.K_KP4
                 ):
@@ -368,139 +644,88 @@ def main():
                     if not is_at_anchor(grid, pac):
                         print("[Teleport] Not at a corner anchor -> ignored")
                     else:
-                        target = anchors[key2idx[event.key]]
-                        pac = [target[0], target[1]]
-                        step_mod = (step_mod + 1) % 30
-                        ttl = max(0, ttl - 1)
-                        # Collect ở điểm đích
-                        if tuple(pac) in foods: foods.remove(tuple(pac))
-                        if tuple(pac) in pies: ttl = 5; pies.remove(tuple(pac))
-                        # Va chạm ma
-                        for (gr, gc), _ in ghosts:
-                            if (gr, gc) == tuple(pac):
-                                print("Bị ma bắt! (teleport)")
-                                show_center_message(screen, " Bị ma bắt!")
-                                reset_game()
-                                break
-                        # Xoay sau mỗi 30 bước
-                        if step_mod == 0:
-                            grid, pac, foods, pies, ghosts, exit_pos = rotate_world(
-                                grid, tuple(pac), foods, pies, ghosts, exit_pos
-                            )
-                            pac = list(pac)
-                            logical_surface = make_logical_surface(grid)
-                        # Kiểm tra hoàn thành
-                        if len(foods) == 0 and tuple(pac) == exit_pos:
-                            print("Completed! All food collected and reached EXIT.")
-                            auto_mode = False; auto_plan = []
-                            game_completed = True
-                            pygame.time.set_timer(GHOST_EVENT, 0)  # tắt ghost timer
+                        target_action = {0:"TUL",1:"TUR",2:"TBL",3:"TBR"}[key2idx[event.key]]
+                        (grid, pac, foods, pies, ghosts, exit_pos,
+                         ttl, step_mod, logical_surface, died, rotated) = apply_action_step(
+                            target_action, grid, pac, foods, pies, ghosts, exit_pos, ttl, step_mod, screen, logical_surface
+                        )
+                        if died:
+                            reset_game()
+                        # Manual teleport không replan
+                    continue
 
-                # Toggle AUTO planning with A*
-                elif event.key == pygame.K_a:
-                    auto_mode = not auto_mode
-                    auto_plan = []
-                    if auto_mode:
-                        foods_list = sorted(list(foods))
-                        pies_list = sorted(list(pies))
-                        ghosts_list = [(tuple(pos), d) for (pos, d) in ghosts]
-                        try:
-                            prob = PacmanProblem(grid, tuple(pac), foods_list, exit_pos, pies=pies_list, ghosts=ghosts_list)
-                            h = HeuristicPacmanMST(grid, exit_pos)
-                            res = astar(prob, h, graph_search=True)
-                            if res.get("solution"):
-                                auto_plan = [n.action for n in res["solution"][1:]]
-                                print(f"[AUTO] plan len={len(auto_plan)} cost={res['cost']}")
-                            else:
-                                print("[AUTO] No solution found.")
-                                auto_mode = False
-                        except Exception as e:
-                            print("[AUTO] Planning error:", e)
-                            auto_mode = False
-                # Manual step
-                if dr or dc:
-                    nr, nc = pac[0] + dr, pac[1] + dc
-                    if 0 <= nr < len(grid) and 0 <= nc < len(grid[0]):
-                        wall = is_wall(grid, nr, nc)
-                        if not wall or ttl > 0:
-                            pac = [nr, nc]
-                            step_mod = (step_mod + 1) % 30
-                            ttl = max(0, ttl - 1)
-                            # Collect
-                            if tuple(pac) in foods: foods.remove(tuple(pac))
-                            if tuple(pac) in pies: ttl = 5; pies.remove(tuple(pac))
-                            # Collision with ghosts (they move via timer)
-                            for (gr,gc), _ in ghosts:
-                                if (gr,gc) == tuple(pac):
-                                    print("Bị ma bắt!")
-                                    show_center_message(screen, " Bị ma bắt!")
-                                    reset_game()
-                                    break
-                            # Rotate world each 30 steps
-                            if step_mod == 0:
-                                grid, pac, foods, pies, ghosts, exit_pos = rotate_world(
-                                    grid, tuple(pac), foods, pies, ghosts, exit_pos
-                                )
-                                pac = list(pac)
-                                logical_surface = make_logical_surface(grid)
-                            # Kiểm tra hoàn thành
-                            if len(foods) == 0 and tuple(pac) == exit_pos:
-                                print("Completed! All food collected and reached EXIT.")
-                                auto_mode = False; auto_plan = []
-                                game_completed = True
-                                pygame.time.set_timer(GHOST_EVENT, 0)
+                # Manual N/S/E/W
+                key_to_action = {
+                    pygame.K_UP:"N", pygame.K_DOWN:"S", pygame.K_LEFT:"W", pygame.K_RIGHT:"E",
+                }
+                if event.key in key_to_action:
+                    a = key_to_action[event.key]
+                    (grid, pac, foods, pies, ghosts, exit_pos,
+                     ttl, step_mod, logical_surface, died, rotated) = apply_action_step(
+                        a, grid, pac, foods, pies, ghosts, exit_pos, ttl, step_mod, screen, logical_surface
+                    )
+                    if died:
+                        reset_game()
+                    continue
 
-        # AUTO step (every few frames for visibility)
-        if not game_completed and auto_mode and auto_plan:
-            if auto_tick_cooldown == 0:
-                a = auto_plan.pop(0)
-                drdc = {"N":(-1,0),"S":(1,0),"W":(0,-1),"E":(0,1)}
-                dr, dc = drdc[a]
-                nr, nc = pac[0] + dr, pac[1] + dc
-                if 0 <= nr < len(grid) and 0 <= nc < len(grid[0]):
-                    wall = is_wall(grid, nr, nc)
-                    if not wall or ttl > 0:
-                        pac = [nr, nc]
-                        step_mod = (step_mod + 1) % 30
-                        ttl = max(0, ttl - 1)
-                        if tuple(pac) in foods: foods.remove(tuple(pac))
-                        if tuple(pac) in pies: ttl = 5; pies.remove(tuple(pac))
-                        for (gr,gc), _ in ghosts:
-                            if (gr,gc) == tuple(pac):
-                                print("Bị ma bắt! (AUTO dừng)")
-                                show_center_message(screen, "Bị ma bắt! (AUTO dừng)")
-                                reset_game()
-                                break
-                        if step_mod == 0:
-                            grid, pac, foods, pies, ghosts, exit_pos = rotate_world(
-                                grid, tuple(pac), foods, pies, ghosts, exit_pos
-                            )
-                            pac = list(pac)
-                            logical_surface = make_logical_surface(grid)
-                        # Kiểm tra hoàn thành
-                        if len(foods) == 0 and tuple(pac) == exit_pos:
-                            print(" Completed! All food collected and reached EXIT.")
-                            auto_mode = False; auto_plan = []
-                            game_completed = True
-                            pygame.time.set_timer(GHOST_EVENT, 0)
-                auto_tick_cooldown = 4
+        # --- AUTO: chạy theo ACTION với cooldown + REPLAN nền khi XOAY ---
+        if auto_mode:
+            # nếu đang bận replan → tạm dừng tiến bước, chờ thread xong
+            if planning_busy:
+                # kiểm tra thread đã xong chưa
+                if globals()["__PLANNER_DONE__"]:
+                    new_actions = globals().get("__PLANNER_RESULT__", [])
+                    globals()["__GUI_AUTO_ACTIONS__"] = list(new_actions)
+                    planning_busy = False
+                    globals()["__PLANNER_THREAD__"] = None
+                    globals()["__PLANNER_DONE__"] = False
+                    globals()["__PLANNER_RESULT__"] = []
+                    # cooldown nhẹ sau khi nhận kế hoạch mới
+                    auto_step_cooldown = AUTO_STEP_COOLDOWN_FRAMES
+                # vẫn vẽ HUD bên dưới; không thực thi bước mới
             else:
-                auto_tick_cooldown -= 1
+                acts = globals().get("__GUI_AUTO_ACTIONS__", [])
+                if acts:
+                    if auto_step_cooldown > 0:
+                        auto_step_cooldown -= 1
+                    else:
+                        a = acts.pop(0)
+                        (grid, pac, foods, pies, ghosts, exit_pos,
+                         ttl, step_mod, logical_surface, died, rotated) = apply_action_step(
+                            a, grid, pac, foods, pies, ghosts, exit_pos, ttl, step_mod, screen, logical_surface
+                        )
+                        if died:
+                            auto_mode = False
+                            globals()["__GUI_AUTO_ACTIONS__"] = []
+                        else:
+                            # XOAY → khởi chạy replan nền (không block UI)
+                            if rotated:
+                                spawn_replan_background()
 
-        # Draw to logical surface, then scale to window
+                            # Completed?
+                            if len(foods) == 0 and tuple(pac) == exit_pos:
+                                auto_mode = False
+                                globals()["__GUI_AUTO_ACTIONS__"] = []
+
+                            auto_step_cooldown = AUTO_STEP_COOLDOWN_FRAMES
+                else:
+                    auto_mode = False
+
+        # vẽ
         draw_grid(logical_surface, grid, tuple(pac), foods, exit_pos, pies, ghosts, ttl, step_mod, auto_mode)
+
+        # Overlay báo replan
+        if planning_busy:
+            overlay = pygame.Surface(logical_surface.get_size(), pygame.SRCALPHA)
+            # nền mờ nhẹ ở vùng HUD
+            hud_rect = pygame.Rect(0, len(grid)*CELL_LOGICAL, logical_surface.get_width(), HUD_H)
+            pygame.draw.rect(overlay, (0, 0, 0, 140), hud_rect)
+            font = pygame.font.SysFont(None, 22)
+            msg = font.render("Replanning...", True, (80, 220, 180))
+            overlay.blit(msg, (8, len(grid)*CELL_LOGICAL + 8))
+            logical_surface.blit(overlay, (0,0))
+
         scale_and_present(screen, logical_surface)
-
-        # Nếu đã hoàn thành: vẽ overlay (ngoài HUD)
-        if game_completed:
-            draw_completed_overlay(screen, logical_surface)
-            action = handle_completed_input(screen, logical_surface, reset_game)
-            if action == "restart":
-                pass
-            elif action == "quit":
-                running = False
-
-
         pygame.display.flip()
         clock.tick(FPS)
 
@@ -508,4 +733,6 @@ def main():
     sys.exit(0)
 
 if __name__ == "__main__":
+    print("Using map:", DEFAULT_LAYOUT_PATH)
+    print("Output dir:", OUTPUT_DIR)
     main()

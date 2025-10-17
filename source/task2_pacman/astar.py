@@ -1,59 +1,97 @@
-from __future__ import annotations
-from typing import Any, Iterable, Protocol, Tuple, Optional, Dict, List
-import heapq
-
-class Problem(Protocol):
-    def initial_state(self) -> Any: ...
-    def is_goal(self, state: Any) -> bool: ...
-    def actions(self, state: Any) -> Iterable[Any]: ...
-    def result(self, state: Any, action: Any) -> Any: ...
-    def step_cost(self, state: Any, action: Any, next_state: Any) -> float: ...
-
-class Heuristic(Protocol):
-    def h(self, state: Any) -> float: ...
+from heapq import heappush, heappop
 
 class Node:
-    __slots__ = ("state","g","h","f","parent","action")
-    def __init__(self, state: Any, g: float, h: float, parent: Optional["Node"]=None, action: Any=None):
-        self.state = state; self.g = g; self.h = h; self.f = g + h
-        self.parent = parent; self.action = action
-    def path(self) -> List["Node"]:
-        n, out = self, []
-        while n: out.append(n); n = n.parent
-        return list(reversed(out))
+    __slots__ = ("state","g","h","parent","action")
+    def __init__(self, state, g, h, parent, action):
+        self.state  = state
+        self.g      = g
+        self.h      = h
+        self.parent = parent
+        self.action = action
+    def f(self): return self.g + self.h
 
-def astar(problem: Problem, heuristic: Heuristic, *, graph_search: bool=True):
+def reconstruct(node):
+    states = []
+    actions = []
+    cur = node
+    while cur is not None:
+        states.append(cur.state)
+        actions.append(cur.action)
+        cur = cur.parent
+    states.reverse()
+    actions.reverse()
+    if actions and actions[0] is None:  # root
+        actions = actions[1:]
+    return states, actions
+
+def astar(problem, heuristic, graph_search=True, goal_fn=None, max_expanded=200000):
+    """
+    A* dùng problem.actions(s) + problem.result(s,a).
+    Bỏ qua mọi result None. Không 'unpack' successors kiểu (s,a).
+    """
     start = problem.initial_state()
-    root = Node(start, 0.0, heuristic.h(start))
-    open_heap: List[Tuple[float,int,Node]] = []; tie = 0
-    heapq.heappush(open_heap, (root.f, tie, root))
-    best_g: Dict[Any, float] = {start: 0.0} if graph_search else {}
+    h0 = float(getattr(heuristic, "h", lambda s: 0.0)(start) or 0.0)
+    root = Node(start, g=0.0, h=h0, parent=None, action=None)
 
-    expanded = generated = 0
-    max_frontier = len(open_heap)
+    openpq = []
+    heappush(openpq, (root.f(), 0, root))
+    best_g = {start: 0.0} if graph_search else {}
+    expanded = 0
+    generated = 1
+    tie = 1
 
-    while open_heap:
-        if len(open_heap) > max_frontier:
-            max_frontier = len(open_heap)
+    while openpq:
+        if expanded > max_expanded:
+            return {"solution": None, "actions": [], "cost": float("inf"),
+                    "generated": generated, "expanded": expanded, "reason": "limit"}
 
-        _,_, node = heapq.heappop(open_heap); expanded += 1
-        if problem.is_goal(node.state):
-            return {"solution": node.path(), "expanded": expanded, "generated": generated,
-                    "max_frontier": max_frontier, "cost": node.g}
+        _, _, node = heappop(openpq)
+        s = node.state
 
-        for action in problem.actions(node.state):
-            s2 = problem.result(node.state, action)
+        is_goal = problem.is_goal(s) if goal_fn is None else bool(goal_fn(s))
+        if is_goal:
+            states, actions = reconstruct(node)
+            return {"solution": states, "actions": actions, "cost": node.g,
+                    "generated": generated, "expanded": expanded}
+
+        expanded += 1
+        try:
+            act_list = list(problem.actions(s))
+        except Exception:
+            act_list = []
+            
+        def _prio(a):
+            return 0 if a in ("TUL","TUR","TBL","TBR") else 1
+        act_list.sort(key=_prio)
+        
+        for a in act_list:
+            try:
+                s2 = problem.result(s, a)
+            except Exception:
+                s2 = None
             if s2 is None:
-                # trạng thái không hợp lệ (ví dụ: đụng ma) -> bỏ qua
                 continue
-            g2 = node.g + problem.step_cost(node.state, action, s2)
+
+            try:
+                g2 = node.g + float(problem.step_cost(s, a, s2))
+            except Exception:
+                g2 = node.g + 1.0
+
             if graph_search:
                 old = best_g.get(s2)
-                if old is not None and g2 >= old - 1e-12:
+                if old is not None and g2 >= old:
                     continue
                 best_g[s2] = g2
-            h2 = heuristic.h(s2); n2 = Node(s2, g2, h2, node, action); generated += 1
-            tie += 1; heapq.heappush(open_heap, (n2.f, tie, n2))
 
-    return {"solution": None, "expanded": expanded, "generated": generated,
-            "max_frontier": max_frontier, "cost": float("inf")}
+            try:
+                h2 = float(getattr(heuristic, "h", lambda st: 0.0)(s2) or 0.0)
+            except Exception:
+                h2 = 0.0
+
+            child = Node(s2, g2, h2, node, a)
+            heappush(openpq, (child.f(), tie, child))
+            tie += 1
+            generated += 1
+
+    return {"solution": None, "actions": [], "cost": float("inf"),
+            "generated": generated, "expanded": expanded}

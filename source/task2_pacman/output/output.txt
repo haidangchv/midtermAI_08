@@ -1,0 +1,2 @@
+cost: 34
+actions: West West West West West West West West West East East East East East East East East East East East East East East East East East South South East East West West West North

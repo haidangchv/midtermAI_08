@@ -1,12 +1,18 @@
 from __future__ import annotations
+import sys
 import argparse, os, time, csv
 from astar import astar
 from bfs import bfs
 from pacman_problem import PacmanProblem
 from heuristics import HeuristicPacmanMST
 
+# ----- IMPORT PATHS -----
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))           # .../source/task2_pacman/gui
+TASK2_DIR = os.path.abspath(os.path.join(BASE_DIR, ".."))       # .../source/task2_pacman
+sys.path.insert(0, TASK2_DIR)
 # Dùng file bạn đã upload làm layout mặc định (đường dẫn tương đối từ file này)
-DEFAULT_LAYOUT = "../../task02_pacman_example_map.txt"
+DEFAULT_LAYOUT = os.path.abspath(os.path.join(TASK2_DIR,  "..", "task02_pacman_example_map.txt"))
+    
 
 def load_layout(layout_arg: str):
     if not os.path.exists(layout_arg):
