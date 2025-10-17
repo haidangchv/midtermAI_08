@@ -12,6 +12,7 @@ from collections import deque
 Grid = Tuple[Tuple[int, int, int], Tuple[int, int, int], Tuple[int, int, int]]
 
 # ------------------------------------------------
+# Hỗ trợ Graphviz 'dot'
 def _inject_dot_into_env(dot_path: Optional[str]) -> None:
     """
     Thêm dot.exe vào PATH và đặt GRAPHVIZ_DOT nếu dot_path được cung cấp.
@@ -19,26 +20,21 @@ def _inject_dot_into_env(dot_path: Optional[str]) -> None:
     """
     if not dot_path:
         return
-    # Nếu đưa vào thư mục, nối dot.exe
     if os.path.isdir(dot_path):
         dot_path = os.path.join(dot_path, "dot.exe")
     if os.path.isfile(dot_path):
         dot_dir = os.path.dirname(dot_path)
         os.environ["PATH"] = f"{dot_dir};" + os.environ.get("PATH", "")
         os.environ["GRAPHVIZ_DOT"] = dot_path
-        
 
-def _ensure_dot_available(extra_candidates: Optional[list[str]] = None) -> str | None:
+def _ensure_dot_available(extra_candidates: Optional[List[str]] = None) -> Optional[str]:
     """
     Tìm dot.exe trong PATH; nếu không có, thử thêm các vị trí phổ biến.
     Trả về đường dẫn dot (hoặc None nếu vẫn không tìm thấy).
     """
-    # 1) Nếu đã có trong PATH
     cur = shutil.which("dot")
     if cur:
         return cur
-
-    # 2) Thử các vị trí phổ biến
     candidates = [
         r"C:\Program Files\Graphviz\bin\dot.exe",
         r"C:\Program Files (x86)\Graphviz2.38\bin\dot.exe",
@@ -46,12 +42,13 @@ def _ensure_dot_available(extra_candidates: Optional[list[str]] = None) -> str |
     ]
     if extra_candidates:
         candidates = extra_candidates + candidates
-
     for p in candidates:
         if p and os.path.isfile(p):
             _inject_dot_into_env(p)
             return p
     return None
+
+# ------------------------------------------------
 # Utilities
 def find_pos(g: Grid, val: int) -> Tuple[int, int]:
     for i in range(3):
@@ -202,28 +199,9 @@ def h_zero(state: Grid, problem: EightPuzzleProblem) -> float:
     return 0.0
 
 def h_pair(state: Grid, problem: EightPuzzleProblem) -> float:
+    # Số ô sai vị trí (tối ưu theo 4 goal), mỗi bước có thể sửa tối đa 2 ô => ceil(mis/2)
     mis = misplaced_tiles_min_over_goals(state, problem.goals)
-    return float((mis + 1) // 2)  # ceil(mis/2)
-
-def corner_swap_lower_bound(state: Grid, problem: EightPuzzleProblem) -> float:
-    lb = 0
-    corners = [((0,0),(2,2)), ((0,2),(2,0))]
-    for g in problem.goals:
-        add = 0
-        for (p1, p2) in corners:
-            v1s = state[p1[0]][p1[1]]
-            v2s = state[p2[0]][p2[1]]
-            v1g = g[p1[0]][p1[1]]
-            v2g = g[p2[0]][p2[1]]
-            if v1s != 0 and v2s != 0:
-                # Nếu chỉ cần 1 swap góc là đúng cả 2
-                if v1s == v2g and v2s == v1g and (v1s != v1g or v2s != v2g):
-                    add = max(add, 1)
-        lb = max(lb, add)
-    return float(lb)
-
-def h_max_pair_corner(state: Grid, problem: EightPuzzleProblem) -> float:
-    return max(h_pair(state, problem), corner_swap_lower_bound(state, problem))
+    return float((mis + 1) // 2)
 
 # ------------------------------------------------
 # A* tổng quát
@@ -367,8 +345,7 @@ def run_once_with_solver(solver_factory: Callable[[], Any]) -> RunStats:
         raise ValueError("Unknown solver")
 
 def experiment_compare(initial_states: List[Grid],
-                       goals: Optional[List[Grid]] = None,
-                       use_h_corner_max: bool = False) -> Dict[str, List[RunStats]]:
+                       goals: Optional[List[Grid]] = None) -> Dict[str, List[RunStats]]:
     results: Dict[str, List[RunStats]] = {"A*_h0": [], "A*_hpair": [], "BFS": []}
     for s in initial_states:
         prob = EightPuzzleProblem(s, goals=goals)
@@ -376,10 +353,9 @@ def experiment_compare(initial_states: List[Grid],
         results["A*_h0"].append(
             run_once_with_solver(lambda p=prob: AStar(p, h_zero))
         )
-        # A* with h_pair or h_max_pair_corner
-        hfun = h_max_pair_corner if use_h_corner_max else h_pair
+        # A* with h_pair
         results["A*_hpair"].append(
-            run_once_with_solver(lambda p=prob, hf=hfun: AStar(p, hf))
+            run_once_with_solver(lambda p=prob: AStar(p, h_pair))
         )
         # BFS
         results["BFS"].append(
@@ -399,6 +375,21 @@ def summarize_results(results: Dict[str, List[RunStats]]) -> Dict[str, Dict[str,
             "avg_time_ms": 1000.0 * (sum(s.elapsed_sec for s in stats) / max(1, len(stats))),
         }
     return summary
+
+def print_table_from_summary(title: str, summary: Dict[str, Dict[str, float]]) -> None:
+    print(f"\nBẢNG 4 — {title}")
+    print("=" * 90)
+    print(f"{'Thuật toán':<26}{'Trials':>8}{'Found%':>10}{'Avg Cost':>12}{'Avg Expanded':>15}{'Avg Time (ms)':>15}")
+    print("-" * 90)
+    order = ["A*_h0", "A*_hpair", "BFS"]
+    for k in order:
+        if k in summary:
+            row = summary[k]
+            print(f"{k:<26}{row['trials']:>8.0f}{row['found_rate']*100:>9.1f}%{row['avg_cost']:>12.2f}{row['avg_expanded']:>15.2f}{row['avg_time_ms']:>15.2f}")
+    for k, row in summary.items():
+        if k not in order:
+            print(f"{k:<26}{row['trials']:>8.0f}{row['found_rate']*100:>9.1f}%{row['avg_cost']:>12.2f}{row['avg_expanded']:>15.2f}{row['avg_time_ms']:>15.2f}")
+    print("=" * 90)
 
 # ------------------------------------------------
 # Trình bày trạng thái/đường đi
@@ -442,38 +433,37 @@ def evaluate_admissibility_along_path(problem: EightPuzzleProblem,
                                       heuristic: Callable[[Grid, EightPuzzleProblem], float],
                                       solution_node: Node) -> List[dict]:
     """
-    BẢNG 1 — KIỂM TRA TÍNH ADMISSIBLE TRÊN ĐƯỜNG ĐI NGHIỆM
-    Điều kiện: h(n) ≤ h*(n), trong đó h*(n) là chi phí tối ưu (tính bằng BFS).
+    BẢNG — ADMISSIBLE (h(n) ≤ h*(n)) DỌC THEO ĐƯỜNG ĐI NGHIỆM
     """
     rows: List[dict] = []
     path = solution_node.path()
-    print("\nBẢNG 1 — KIỂM TRA TÍNH ADMISSIBLE (h(n) ≤ h*(n)) TRÊN ĐƯỜNG ĐI NGHIỆM")
+    print("\nBẢNG — ADMISSIBLE (h(n) ≤ h*(n)) DỌC THEO ĐƯỜNG ĐI NGHIỆM")
     print("=" * 80)
-    print("{:<8}{:<12}{:<24}{}".format("Bước", "h(n)", "h*(n) = cost tối ưu", "Kết luận"))
+    print(f"{'Bước':<8}{'h(n)':<12}{'h*(n) = cost tối ưu':<24}{'Kết luận'}")
     print("-" * 80)
     for k, nd in enumerate(path):
         h_n = heuristic(nd.state, problem)
         h_star = bfs_optimal_cost_from_state(problem, nd.state)
         ok = h_n <= h_star
         rows.append({"step": k, "h": h_n, "h_star": h_star, "ok": ok})
-        print("{:<8}{:<12}{:<24}{}".format(k, int(h_n), h_star, "Đúng" if ok else "Sai"))
+        print(f"{k:<8}{int(h_n):<12}{h_star:<24}{'Đúng' if ok else 'Sai'}")
     print("=" * 80)
     return rows
-
 
 def evaluate_consistency_for_state(problem: EightPuzzleProblem,
                                    heuristic: Callable[[Grid, EightPuzzleProblem], float],
                                    state: Grid) -> List[dict]:
     """
-    BẢNG 2 — KIỂM TRA TÍNH CONSISTENT TẠI 1 TRẠNG THÁI
-    Điều kiện: h(n) ≤ 1 + h(n')
+    BẢNG — CONSISTENT TẠI 1 TRẠNG THÁI (h(n) ≤ 1 + h(n'))
     """
     rows: List[dict] = []
     h_n = heuristic(state, problem)
-    print("\nBẢNG 2 — KIỂM TRA TÍNH CONSISTENT TẠI 1 TRẠNG THÁI (h(n) ≤ 1 + h(n'))")
+    print("\nBẢNG — CONSISTENT TẠI 1 TRẠNG THÁI (h(n) ≤ 1 + h(n'))")
     print("=" * 110)
+    # Dùng .format để tránh backslash trong f-string
     print("{:<10}{:<10}{:<12}{:<14}{:<12}{}".format(
-        "Kế thừa", "h(n)", "h(n')", "1 + h(n')", "Kết luận", "Hành động"))
+        "Kế thừa", "h(n)", "h(n')", "1 + h(n')", "Kết luận", "Hành động"
+    ))
     print("-" * 110)
     idx = 0
     for act in problem.actions(state):
@@ -483,35 +473,37 @@ def evaluate_consistency_for_state(problem: EightPuzzleProblem,
         idx += 1
         rows.append({"k": idx, "action": str(act), "h_n": h_n, "h_np": h_np, "ok": consistent})
         print("{:<10}{:<10}{:<12}{:<14}{:<12}{}".format(
-            idx, int(h_n), int(h_np), int(1 + h_np), "Đúng" if consistent else "Sai", act))
+            idx, int(h_n), int(h_np), int(1 + h_np), "Đúng" if consistent else "Sai", act
+        ))
     print("=" * 110)
     return rows
-
 
 def evaluate_consistency_along_path(problem: EightPuzzleProblem,
                                     heuristic: Callable[[Grid, EightPuzzleProblem], float],
                                     solution_node: Node,
                                     max_steps: int = 10) -> List[List[dict]]:
     """
-    BẢNG 3 — KIỂM TRA TÍNH CONSISTENT TRÊN K BƯỚC ĐẦU CỦA ĐƯỜNG ĐI NGHIỆM
+    BẢNG — CONSISTENT TRÊN K BƯỚC ĐẦU CỦA ĐƯỜNG ĐI NGHIỆM
     Với mỗi bước k (tối đa max_steps), kiểm tra h(n) ≤ 1 + h(n') cho mọi successor.
     """
     all_rows: List[List[dict]] = []
     path = solution_node.path()
     upto = min(len(path), max_steps)
-    print(f"\nBẢNG 3 — KIỂM TRA TÍNH CONSISTENT TRÊN {upto} BƯỚC ĐẦU CỦA ĐƯỜNG ĐI NGHIỆM")
+    print(f"\nBẢNG — CONSISTENT TRÊN {upto} BƯỚC ĐẦU CỦA ĐƯỜNG ĐI NGHIỆM")
     for k in range(upto):
         print(f"\n--- Trạng thái tại bước {k} ---")
         rows = evaluate_consistency_for_state(problem, heuristic, path[k].state)
         all_rows.append(rows)
     return all_rows
 
-
 # ------------------------------------------------
 # ======= Render PNG bằng Graphviz + biến thể “đúng n NÚT” =======
 
 def render_search_tree_png(astar: AStar, max_edges: int = 100, filename: str = "search_tree",
                            dot_path: Optional[str] = None):
+    """
+    Vẽ cây theo GIỚI HẠN SỐ CẠNH (max_edges). Nếu thiếu 'dot', tự xuất .dot để render thủ công.
+    """
     try:
         from graphviz import Digraph
     except Exception as e:
@@ -519,6 +511,7 @@ def render_search_tree_png(astar: AStar, max_edges: int = 100, filename: str = "
         with open(f"{filename}.dot", "w", encoding="utf-8") as f:
             f.write(dot_src)
         print(f"Graphviz (Python) chưa sẵn sàng ({e}). Đã ghi DOT vào {filename}.dot")
+        print(f">> Render thủ công: dot -Tpng {filename}.dot -o {filename}.png")
         return
 
     # Tiêm dot_path (nếu có) hoặc tự tìm
@@ -551,11 +544,13 @@ def render_search_tree_png(astar: AStar, max_edges: int = 100, filename: str = "
         dot_src = astar.export_search_tree_dot(limit_edges=max_edges)
         with open(f"{filename}.dot", "w", encoding="utf-8") as f:
             f.write(dot_src)
-        print(f"Không chạy được dot ({e}). Đã ghi DOT vào {filename}.dot\n"
-              f">> Render thủ công: dot -Tpng {filename}.dot -o {filename}.png")
+        print(f"Không chạy được dot ({e}). Đã ghi DOT vào {filename}.dot")
+        print(f">> Render thủ công: dot -Tpng {filename}.dot -o {filename}.png")
 
 def export_dot_by_nodes(astar: AStar, max_nodes: int = 30) -> str:
-    """Xuất DOT với đúng 'max_nodes' NÚT đầu tiên theo thứ tự xuất hiện."""
+    """
+    Xuất DOT với đúng 'max_nodes' NÚT đầu tiên theo thứ tự xuất hiện (root trước, rồi theo trace_edges).
+    """
     lines = ["digraph G {", '  node [shape=box, fontsize=10];']
 
     # Chọn thứ tự nút: gốc trước, rồi theo trace_edges
@@ -596,6 +591,9 @@ def export_dot_by_nodes(astar: AStar, max_nodes: int = 30) -> str:
 
 def render_search_tree_png_by_nodes(astar: AStar, max_nodes: int = 30, filename: str = "search_tree_n",
                                     dot_path: Optional[str] = None):
+    """
+    Vẽ cây với ĐÚNG 'max_nodes' NÚT đầu tiên. Nếu thiếu 'dot', xuất .dot để render thủ công.
+    """
     try:
         from graphviz import Digraph
     except Exception as e:
@@ -603,6 +601,7 @@ def render_search_tree_png_by_nodes(astar: AStar, max_nodes: int = 30, filename:
         with open(f"{filename}.dot", "w", encoding="utf-8") as f:
             f.write(dot_src)
         print(f"Graphviz (Python) chưa sẵn sàng ({e}). Đã ghi DOT vào {filename}.dot")
+        print(f">> Render thủ công: dot -Tpng {filename}.dot -o {filename}.png")
         return
 
     if dot_path:
@@ -648,11 +647,11 @@ def render_search_tree_png_by_nodes(astar: AStar, max_nodes: int = 30, filename:
         dot_src = export_dot_by_nodes(astar, max_nodes)
         with open(f"{filename}.dot", "w", encoding="utf-8") as f:
             f.write(dot_src)
-        print(f"Không chạy được dot ({e}). Đã ghi DOT vào {filename}.dot\n"
-              f">> Render thủ công: dot -Tpng {filename}.dot -o {filename}.png")
+        print(f"Không chạy được dot ({e}). Đã ghi DOT vào {filename}.dot")
+        print(f">> Render thủ công: dot -Tpng {filename}.dot -o {filename}.png")
 
 # ------------------------------------------------
-# Ví dụ chạy nhanh (có thể bỏ hoặc thay initial khác)
+# Ví dụ chạy nhanh + đánh giá heuristic + thí nghiệm
 if __name__ == "__main__":
     # 1) Tạo bài toán từ một trạng thái ban đầu
     initial: Grid = ((2, 8, 3),
@@ -682,36 +681,43 @@ if __name__ == "__main__":
     print_solution(goal_b)
     print(f"Expanded nodes: {bfs_solver.expanded_nodes}")
 
-    # 5) Đánh giá heuristic dọc theo đường đi (admissibility) + consistency
+    # 5) Đánh giá heuristic — Mỗi heuristic 2 bảng:
+    #    (A1/B1) Admissible dọc theo path; (A2/B2) Consistent trên K bước đầu
+    K = 8
+
     if goal is not None:
+        print("\n### Heuristic: h_pair")
+        print("BẢNG A1 — Admissible (h(n) ≤ h*(n)) dọc theo đường đi nghiệm — h_pair")
         _ = evaluate_admissibility_along_path(problem, h_pair, goal)
-        _ = evaluate_consistency_along_path(problem, h_pair, goal, max_steps=8)
+
+        print(f"BẢNG A2 — Consistent (h(n) ≤ 1 + h(n')) trên {K} bước đầu — h_pair")
+        _ = evaluate_consistency_along_path(problem, h_pair, goal, max_steps=K)
+    else:
+        print("Không có lời giải (h_pair) để đánh giá.")
+
+    if goal0 is not None:
+        print("\n### Heuristic: h_zero")
+        print("BẢNG B1 — Admissible (h(n) ≤ h*(n)) dọc theo đường đi nghiệm — h_zero")
+        _ = evaluate_admissibility_along_path(problem, h_zero, goal0)
+
+        print(f"BẢNG B2 — Consistent (h(n) ≤ 1 + h(n')) trên {K} bước đầu — h_zero")
+        _ = evaluate_consistency_along_path(problem, h_zero, goal0, max_steps=K)
+    else:
+        print("Không có lời giải (h_zero) để đánh giá.")
 
     # 6) Thí nghiệm nhỏ (M trạng thái sinh từ goal bằng các action hợp lệ)
     M = 8
     base_goal_problem = EightPuzzleProblem(((1,2,3),(4,5,6),(7,8,0)))
     initials = [random_state_from_goal(base_goal_problem, steps=40, seed=100+i) for i in range(M)]
-    res = experiment_compare(initials, use_h_corner_max=False)
+
+    res = experiment_compare(initials)
     print("\n=== Summary (A*_h0 vs A*_hpair vs BFS) ===")
-    for name, row in summarize_results(res).items():
+    summary = summarize_results(res)
+    for name, row in summary.items():
         print(name, row)
+    print_table_from_summary("So sánh A* (h0) vs A* (h_pair) vs BFS", summary)
 
-    # Thí nghiệm: h_pair vs BFS
-    res1 = experiment_compare(initials, use_h_corner_max=False)
-    print("\n=== Summary (A*_h0 vs A*_hpair vs BFS) ===")
-    for name, row in summarize_results(res1).items():
-        print(name, row)
-
-    # Thí nghiệm: h_max_pair_corner vs BFS
-    res2 = experiment_compare(initials, use_h_corner_max=True)
-    print("\n=== Summary (A*_h0 vs A*_h_max_pair_corner vs BFS) ===")
-    for name, row in summarize_results(res2).items():
-        print(name.replace("A*_hpair", "A*_h_max_pair_corner"), row)
-    
-    print("\n=== Render search tree examples ===")
-
-    DOT = r"C:\Program Files\Graphviz\bin\dot.exe"  # hoặc r"C:\Program Files\Graphviz\bin"
-    # 7) Render PNG với giới hạn số cạnh
+    # 7) Render PNG với giới hạn số cạnh & đúng “n NÚT”
+    DOT = None  # hoặc r"C:\Program Files\Graphviz\bin\dot.exe"
     render_search_tree_png(astar, max_edges=60, filename="search_tree_edges", dot_path=DOT)
-    # 8) Render PNG đúng “n NÚT” 
     render_search_tree_png_by_nodes(astar, max_nodes=10, filename="search_tree_10_nodes", dot_path=DOT)
