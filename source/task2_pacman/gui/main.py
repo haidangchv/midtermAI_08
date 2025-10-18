@@ -1,7 +1,3 @@
-# source/task2_pacman/gui/main.py
-# GUI pygame với sprites + 4-frame animation cho Pacman, ghost nhiều màu,
-# overlay End Game. Chỉ sửa giao diện/UI, KHÔNG động tới thuật toán.
-
 try:
     import pygame
 except Exception as e:

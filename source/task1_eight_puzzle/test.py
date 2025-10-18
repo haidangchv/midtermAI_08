@@ -502,7 +502,7 @@ def evaluate_consistency_along_path(problem: EightPuzzleProblem,
 def render_search_tree_png(astar: AStar, max_edges: int = 100, filename: str = "search_tree",
                            dot_path: Optional[str] = None):
     """
-    Vẽ cây theo GIỚI HẠN SỐ CẠNH (max_edges). Nếu thiếu 'dot', tự xuất .dot để render thủ công.
+    Vẽ cây theo GIỚI HẠN SỐ CẠNH
     """
     try:
         from graphviz import Digraph
