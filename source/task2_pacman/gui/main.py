@@ -1,3 +1,7 @@
+# source/task2_pacman/gui/main.py
+# GUI pygame với sprites + 4-frame animation cho Pacman, ghost nhiều màu,
+# overlay End Game. Chỉ sửa giao diện/UI, KHÔNG động tới thuật toán.
+
 try:
     import pygame
 except Exception as e:
@@ -15,7 +19,7 @@ TASK2_DIR = os.path.abspath(os.path.join(BASE_DIR, ".."))       # .../source/tas
 sys.path.insert(0, TASK2_DIR)
 
 from pacman_problem import PacmanProblem
-from heuristics import HeuristicTeleportAware
+from heuristics import HeuristicPacmanMSTDynamicTeleport
 from astar import astar
 
 # ----- I/O PATHS -----
@@ -492,16 +496,26 @@ def apply_action_step(a, grid, pac, foods, pies, ghosts, exit_pos, ttl, step_mod
         drdc = {"N":(-1,0),"S":(1,0),"W":(0,-1),"E":(0,1)}
         dr, dc = drdc[a]
         tr, tc = nr + dr, nc + dc
-        blocked = (
-            not (0 <= tr < R and 0 <= tc < C) or
-            (grid[tr][tc] == '%' and ttl <= 0)
-        )
-        if blocked:
-            return grid, pac, foods, pies, ghosts, exit_pos, ttl, step_mod, logical_surface, False, False
-        nr, nc = tr, tc
-        # cập nhật hướng để xoay/flip animation
-        LAST_PAC_DIR = {"E":0, "W":1, "N":2, "S":3}[a]
 
+        # out-of-bounds -> không hợp lệ
+        if not (0 <= tr < R and 0 <= tc < C):
+            return grid, pac, foods, pies, ghosts, exit_pos, ttl, step_mod, logical_surface, False, False
+
+        # Nếu là tường:
+        if grid[tr][tc] == '%':
+            if ttl > 0:
+                # ĂN TƯỜNG: biến ô tường thành sàn vĩnh viễn (dùng ' ' làm sàn trống)
+                row = list(grid[tr])
+                row[tc] = ' '
+                grid[tr] = ''.join(row)
+                # Cho phép bước vào ô này
+            else:
+                # Không có TTL -> bị chặn
+                return grid, pac, foods, pies, ghosts, exit_pos, ttl, step_mod, logical_surface, False, False
+
+        nr, nc = tr, tc
+        # cập nhật hướng để xoay/flip animation như cũ
+        LAST_PAC_DIR = {"E":0, "W":1, "N":2, "S":3}[a]
     elif a in ("TUL","TUR","TBL","TBR"):
         anchors = corner_anchors(grid)
         if tuple(pac) not in set(anchors):
@@ -668,7 +682,7 @@ def plan_from_snapshot(grid, pac, foods, pies, ghosts, exit_pos, ttl, step_mod):
                 prob = PacmanProblem(cur_grid, cur_pac, cur_foods, cur_exit,
                                      pies=cur_pies, ghosts=cur_ghosts,
                                      ttl0=cur_ttl, steps_mod30_0=cur_step, rot_idx0=0)
-                hz = HeuristicTeleportAware(prob)
+                hz = HeuristicPacmanMSTDynamicTeleport(prob)
                 res = _run_astar_safe(prob, hz, goal_fn=None)
 
                 if not res or not res.get("solution"):
@@ -692,7 +706,7 @@ def plan_from_snapshot(grid, pac, foods, pies, ghosts, exit_pos, ttl, step_mod):
                 prob = PacmanProblem(cur_grid, cur_pac, cur_foods, cur_exit,
                                      pies=cur_pies, ghosts=cur_ghosts,
                                      ttl0=cur_ttl, steps_mod30_0=cur_step, rot_idx0=0)
-                hz = HeuristicTeleportAware(prob)
+                hz = HeuristicPacmanMSTDynamicTeleport(prob)
                 res = _run_astar_safe(prob, hz, goal_fn=goal_fn)
 
                 if not res or not res.get("solution"):

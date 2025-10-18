@@ -4,7 +4,7 @@ import argparse, os, time, csv
 from astar import astar
 from bfs import bfs
 from pacman_problem import PacmanProblem
-from heuristics import HeuristicTeleportAware
+from heuristics import HeuristicPacmanMSTDynamicTeleport
 
 
 # ----- IMPORT PATHS -----
@@ -75,7 +75,7 @@ def main():
     start, foods, exit_pos, pies, ghosts = parse_layout(grid)
 
     prob = PacmanProblem(grid, start, foods, exit_pos, pies=pies, ghosts=ghosts)
-    h =HeuristicTeleportAware(grid, exit_pos)
+    h =HeuristicPacmanMSTDynamicTeleport(grid, exit_pos)
 
     rows = []
 
