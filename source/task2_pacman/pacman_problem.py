@@ -73,15 +73,6 @@ class PacmanState(NamedTuple):
 
 # ---------- Bài toán ----------
 class PacmanProblem:
-    """
-    - Mỗi 30 bước: xoay mê cung 90° CW, biến đổi toạ độ Pacman/foods/pies/ghosts/Exit và cả
-      tập các ô tường đã phá (destroyed).
-    - Teleport: khi Pacman đứng tại 'ô neo' gần TL/TR/BL/BR (open cell đầu tiên khi quét từ góc),
-      có thể nhảy tới neo tương ứng. Action code: TUL/TUR/TBL/TBR, cost=1.
-    - Pie 'O': khi ăn -> ttl=5. Trong TTL>0, nếu đi vào '%' thì ô đó bị *ăn* (xoá vĩnh viễn thành sàn).
-    - Ma: mỗi bước tick ngang 1 ô; đụng tường đảo chiều; nếu hàng kín thì đứng yên.
-    - Nếu Pacman đụng ma (trước/tức thì/swap cạnh) -> transition invalid (return None) để A* loại nhánh.
-    """
     def __init__(self, grid: Grid, start: Pos, foods: List[Pos], exit_pos: Pos,
                  pies: List[Pos] = None, ghosts: List[Tuple[Pos, int]] = None,
                  ttl0: int = 0, steps_mod30_0: int = 0, rot_idx0: int = 0):
@@ -139,9 +130,6 @@ class PacmanProblem:
         return self._apply_destruction(g, s.destroyed)
 
     def _corner_anchor_positions(self, arg) -> Dict[str, Pos]:
-        # Backward-compatible wrapper:
-        # - If called with rot_idx (int), compute anchors on static rotated grid (without destruction)
-        # - If called with state, compute anchors on dynamic grid (with destruction)
         if isinstance(arg, int):
             rot_idx = arg
             g = self._current_grid(rot_idx)
@@ -199,12 +187,6 @@ class PacmanProblem:
         return len(s.foods) == 0 and s.pacman == self._exit_at(s.rot_idx)
 
     def actions(self, s: PacmanState) -> Iterable[str]:
-        """
-        Trả về tập action cho trạng thái s.
-        - ƯU TIÊN TELEPORT: nếu Pacman đang đứng tại một ô neo (gần TL/TR/BL/BR),
-          luôn thêm 4 action teleport và đặt CHÚNG LÊN TRƯỚC để A* thử trước.
-        - Không có Stop trong state-space (Stop chỉ để xuất file).
-        """
         move_actions = ["N", "S", "E", "W"]
         anchors = self._corner_anchor_positions(s)
         at_anchor = s.pacman in anchors.values()
