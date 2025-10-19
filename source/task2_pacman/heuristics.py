@@ -52,7 +52,7 @@ def _prim_mst_cost(nodes, dfunc) -> int:
                     best[v] = w
     return total
 
-class HeuristicPacmanMSTDynamicTeleport:
+class HeuristicPacmanMST:
 
     def __init__(self, problem=None, **kwargs):
         self.problem = problem
