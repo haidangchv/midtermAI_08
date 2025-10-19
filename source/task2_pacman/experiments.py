@@ -76,7 +76,6 @@ class RunMetrics:
     cost: float = 0.0
     expanded: int = 0
     generated: int = 0
-    max_frontier: int = 0
     time_ms: float = 0.0
 
 def _safe(res, key, default=0):
@@ -96,15 +95,6 @@ def apply_destructions_to_grid(grid, destroyed):
 
 # ==== CHẠY PER-FOOD THEO ĐÚNG PLAN_ONE_GOAL ====
 def run_per_food_like_plan(grid0, start0, foods0, exit0, pies0, ghosts0, max_expanded: int) -> RunMetrics:
-    """
-    Mỗi chặng:
-      - Dùng grid hiện tại (đã tích luỹ phá tường + xoay), tạo Problem với rot_idx0=0
-      - Goal: giảm số food đi 1 (KHÔNG ràng buộc pie)
-      - Chạy A*, cập nhật trạng thái cuối (pac/foods/pies/ghosts/ttl/step_mod)
-      - QUAN TRỌNG: quay grid theo last.rot_idx và xoá các tường trong last.destroyed
-      - Lặp tới khi hết food, rồi A* chặng cuối tới exit với cùng cơ chế.
-    """
-    # lưới hiện tại mà "game" nhìn thấy (đã gồm mọi phá tường trước đó, và đang ở góc xoay hiện tại)
     grid_cur = [row[:] for row in grid0]
     R_cur, C_cur = len(grid_cur), len(grid_cur[0])
 
@@ -120,7 +110,6 @@ def run_per_food_like_plan(grid0, start0, foods0, exit0, pies0, ghosts0, max_exp
     total_cost = 0.0
     total_expanded = 0
     total_generated = 0
-    max_frontier = 0
     total_time_ms = 0.0
 
     # ---- helper chạy 1 lần A* từ grid_cur với rot_idx0=0 ----
@@ -159,8 +148,6 @@ def run_per_food_like_plan(grid0, start0, foods0, exit0, pies0, ghosts0, max_exp
         total_cost     += float(_safe(res, "cost", 0.0))
         total_expanded += int(_safe(res, "expanded", 0))
         total_generated+= int(_safe(res, "generated", 0))
-        max_frontier    = max(max_frontier, int(_safe(res, "max_frontier", 0)))
-
         last = res["solution"][-1]
         # cập nhật state cho chặng sau (toạ độ đã phù hợp với grid_cur sau _apply_post_segment)
         cur_pac    = last.pacman
@@ -176,10 +163,7 @@ def run_per_food_like_plan(grid0, start0, foods0, exit0, pies0, ghosts0, max_exp
         # cập nhật exit theo lần quay k (nếu có)
         # (cur_exit đang ở hệ toạ độ của grid_cur trước khi quay; sau khi quay k, map đổi hệ toạ độ)
         if last.rot_idx % 4 != 0:
-            prev_R, prev_C = R_cur, C_cur  # sau rotate_many, R_cur/C_cur đã là kích thước mới
-            # để xoay exit tương ứng, ta cần kích thước trước khi quay. Lưu lại trước khi gọi _apply_post_segment?
-            # đơn giản hơn: xoay exit cùng với grid ngay trước khi ghi đè R_cur/C_cur.
-            # Vì ở trên ta gọi rotate_many trước, ở đây ta ước lượng kích thước "trước quay":
+            prev_R, prev_C = R_cur, C_cur 
             if (last.rot_idx % 2) == 1:
                 prev_R, prev_C = C_cur, R_cur
             else:
@@ -201,41 +185,25 @@ def run_per_food_like_plan(grid0, start0, foods0, exit0, pies0, ghosts0, max_exp
         total_cost     += float(_safe(res, "cost", 0.0))
         total_expanded += int(_safe(res, "expanded", 0))
         total_generated+= int(_safe(res, "generated", 0))
-        max_frontier    = max(max_frontier, int(_safe(res, "max_frontier", 0)))
-
     return RunMetrics(cost=total_cost, expanded=total_expanded,
-                      generated=total_generated, max_frontier=max_frontier,
+                      generated=total_generated,
                       time_ms=total_time_ms)
 
 # ==== OUTPUT ====
 OUTPUT_DIR = os.path.join(TASK2_DIR, "output")
 TXT_PATH   = os.path.join(OUTPUT_DIR, "experiments_report.txt")
-CSV_PATH   = os.path.join(OUTPUT_DIR, "experiments_metrics.csv")
+
 
 def write_files(layout_path: str, m: RunMetrics):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    # TXT (ghi đè)
+    # TXT (overwrite) — simplified metrics output
     with open(TXT_PATH, "w", encoding="utf-8") as f:
-        f.write(f"=== LAYOUT: {layout_path} ===\n")
-        f.write(f"mode=per-food (plan_one_goal semantics, grid-rotate+destroy persist) | algo=A*-MST | runs=1\n")
-        f.write(f"cost={m.cost:.0f} | expanded={m.expanded} | generated={m.generated} | "
-                f"max_frontier={m.max_frontier} | time={m.time_ms:.1f}ms\n")
-    # CSV (ghi đè)
-    with open(CSV_PATH, "w", encoding="utf-8", newline="") as f:
-        f.write("layout,mode,algo,runs,cost,expanded,generated,max_frontier,time_ms\n")
-        f.write(",".join([
-            layout_path.replace(",", "_"),
-            "per-food-plan",
-            "A*-MST",
-            "1",
-            f"{m.cost:.0f}",
-            f"{m.expanded}",
-            f"{m.generated}",
-            f"{m.max_frontier}",
-            f"{m.time_ms:.1f}"
-        ]) + "\n")
-
-# ==== CLI ====
+        f.write(
+            f"cost={m.cost:.0f} | "
+            f"expanded={m.expanded} | "
+            f"generated={m.generated} | "
+            f"time={m.time_ms:.1f}ms\n"
+        )
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--layout", default="", help="File | folder | glob pattern (.txt).")
@@ -248,16 +216,14 @@ def main():
         start, foods, exit_pos, pies, ghosts = parse_layout(grid)
         print(f"\n=== LAYOUT: {lay} ===")
         print(f"Grid: {len(grid)}x{len(grid[0])} | foods={len(foods)} pies={len(pies)} ghosts={len(ghosts)}")
-        print(f"Running per-food (match plan_one_goal: rotate grid & persist destroyed) ...", flush=True)
-
+        print(f"algo=A*-MST | max_expanded={args.max_expanded}")
         met = run_per_food_like_plan(grid, start, foods, exit_pos, pies, ghosts,
                                      max_expanded=args.max_expanded)
-        print(f"Done: cost={met.cost:.0f} | exp={met.expanded} | gen={met.generated} | "
-              f"frontier={met.max_frontier} | time={met.time_ms:.1f}ms", flush=True)
+        print(f"Done: cost={met.cost:.0f} | exp={met.expanded} | gen={met.generated} | time={met.time_ms:.1f}ms", flush=True)
 
         write_files(lay, met)
         print(f"Wrote TXT: {TXT_PATH}")
-        print(f"Wrote CSV: {CSV_PATH}")
 
 if __name__ == "__main__":
     main()
+    

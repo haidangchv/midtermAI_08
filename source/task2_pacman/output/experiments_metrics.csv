@@ -1,2 +1,0 @@
-layout,mode,algo,runs,cost,expanded,generated,max_frontier,time_ms
-d:\hoc tap\HK5\AI\gk\code\svdang4\midtermAI_08\source\task2_pacman\input\task02_pacman_example_map.txt,per-food-plan,A*-MST,1,135,2730,3858,0,4762.7
