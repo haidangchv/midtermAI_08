@@ -1,0 +1,71 @@
+@startuml
+title Class Diagram - A* Search for 8 Puzzle
+
+class Problem {
+    - initial: Any
+    + is_goal(state: Any): bool
+    + actions(state: Any): Iterable[Action]
+    + result(state: Any, action: Action): Any
+    + step_cost(state, action, next_state): float
+}
+
+class EightPuzzleProblem {
+    - goals: List[Grid]
+    + is_goal(state: Grid): bool
+    + actions(state: Grid): Iterable[Action]
+    + result(state: Grid, action: Action): Grid
+}
+
+class Action {
+    - kind: str
+    - detail: str
+    + __str__(): str
+}
+
+class Node {
+    - id: int
+    - state: Any
+    - g: float
+    - f: float
+    - parent: Node
+    - action: Action
+    + path(): List[Node]
+}
+
+class AStar {
+    - problem: Problem
+    - heuristic: Callable
+    - expanded_nodes: int
+    + solve(max_expansions: Optional[int]): Optional[Node]
+    + export_search_tree_dot(limit_edges: int): str
+}
+
+class BFS {
+    - problem: Problem
+    - expanded_nodes: int
+    + solve(max_expansions: Optional[int]): Optional[Node]
+}
+
+class RunStats {
+    - found: bool
+    - path_cost: Optional[int]
+    - expanded: int
+    - elapsed_sec: float
+}
+
+class Heuristics {
+    + h_zero(state: Grid, problem: EightPuzzleProblem): float
+    + h_pair(state: Grid, problem: EightPuzzleProblem): float
+}
+
+Problem <|-- EightPuzzleProblem
+AStar --> Problem
+BFS --> Problem
+AStar --> Node
+BFS --> Node
+EightPuzzleProblem --> Action
+Node --> Action
+AStar --> Heuristics
+RunStats --> AStar
+RunStats --> BFS
+@enduml
