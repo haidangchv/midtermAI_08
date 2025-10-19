@@ -4,7 +4,6 @@ from .config import (FPS, AUTO_STEP_COOLDOWN_FRAMES, SPRITE_SIZE, ASSETS_DIR,
 from .assets import AssetManager
 from .render import Renderer
 from .layout import load_layout_file, parse_grid, corner_anchors, is_at_anchor
-from .layout import make_logical_surface   # nếu bạn muốn; nhưng Renderer đã có
 from .planner import PlanService
 from .action import ActionExecutor
 from .io_output import write_outputs

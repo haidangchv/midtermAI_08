@@ -54,6 +54,5 @@ def resolve_layout_path(cli_path=None):
         if os.path.isfile(p):
             return p
     raise FileNotFoundError(
-        "Không tìm thấy file layout. Đặt file vào 'input/task02_pacman_example_map.txt' "
-        "hoặc truyền đường dẫn khi chạy."
+        "Không tìm thấy file layout."
     )

@@ -1,4 +1,3 @@
-# source/task2_pacman/pacman_problem.py
 from __future__ import annotations
 from typing import List, Tuple, Iterable, NamedTuple, Dict
 from functools import lru_cache
@@ -59,7 +58,7 @@ def _bfs_maze_dist(g: Grid, src: Pos, dst: Pos) -> int:
 # ---------- Ma ----------
 class Ghost(NamedTuple):
     pos: Pos
-    dir: int  # +1 phải, -1 trái (trên hàng)
+    dir: int 
 
 class PacmanState(NamedTuple):
     pacman: Pos
@@ -69,7 +68,7 @@ class PacmanState(NamedTuple):
     ttl: int
     steps_mod30: int
     rot_idx: int
-    destroyed: Tuple[Pos, ...]  # các ô tường đã bị ăn (đã phá) ở hệ toạ độ hiện tại
+    destroyed: Tuple[Pos, ...]  # các ô tường đã bị ăn 
 
 # ---------- Bài toán ----------
 class PacmanProblem:
@@ -81,7 +80,7 @@ class PacmanProblem:
         self.exit_orig = exit_pos
         self.pies_orig = tuple(pies or [])
 
-        # sanitize ghosts (bỏ phần tử lỗi thay vì raise)
+        # sanitize ghosts
         safe_ghosts = []
         for g in (ghosts or []):
             try:
@@ -108,7 +107,7 @@ class PacmanProblem:
             destroyed=tuple(),   # ban đầu chưa phá tường nào
         )
 
-    # ---------- helpers (grid động) ----------
+    # ---------- helpers ----------
     def _current_grid(self, rot_idx: int) -> Grid:
         return rotate_many(self.orig_grid, rot_idx)
 
@@ -173,7 +172,7 @@ class PacmanProblem:
             "TBR": first_open_from_bottom_right(),
         }
 
-    # cache maze distance theo rot_idx (không xét phá tường) — chỉ dùng khi cần legacy
+    # cache 
     @lru_cache(maxsize=100_000)
     def _maze_dist_cached(self, rot_idx: int, src: Pos, dst: Pos) -> int:
         g = self._current_grid(rot_idx)
@@ -255,7 +254,7 @@ class PacmanProblem:
         else:
             return None
 
-        # 2) Va chạm TRƯỚC tick ma (nếu không có TTL thì ma chạm là chết ngay)
+        # 2) Va chạm 
         if ttl == 0:
             for gh in s.ghosts:
                 if gh.pos == (nr, nc):
@@ -270,7 +269,7 @@ class PacmanProblem:
             pies.remove((nr, nc))
             ttl = 5
 
-        # 4) Ma di chuyển (xét lưới sau khi có thể đã phá tường)
+        # 4) Ma di chuyển 
         old_ghosts = s.ghosts
         ghosts = self._move_ghosts_dyn(PacmanState((nr, nc), tuple(foods), tuple(pies), s.ghosts, ttl, s.steps_mod30, s.rot_idx, tuple(destroyed)))
 

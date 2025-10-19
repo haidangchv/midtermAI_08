@@ -1,7 +1,6 @@
-# source/task2_pacman/heuristics.py
 from collections import deque
 
-# --- Heuristic động: BFS mê cung + teleport + biết "ăn tường" ---
+# --- Heuristic động: BFS + teleport + eat wall ---
 def _neighbors_dyn_with_teleport(grid, p, anchors):
     """4-neighbors trên grid (không đi vào '%'); nếu p là anchor -> có các cạnh teleport."""
     R, C = len(grid), len(grid[0])
@@ -83,13 +82,10 @@ class HeuristicPacmanMST:
         # min distance từ pac tới S (teleport-aware)
         mind = min(self._d(g, anchors, pac, x) for x in nodes)
 
-        # MST trên S với metric là shortest-path (teleport-aware)
+        # MST
         def dfunc(a, b): return self._d(g, anchors, a, b)
         mst_cost = _prim_mst_cost(nodes, dfunc)
 
         ans = mind + mst_cost
         return 0 if ans >= 10**8 else ans
 
-# Heuristic đơn giản để test
-class HeuristicZero:
-    def h(self, s): return 0
