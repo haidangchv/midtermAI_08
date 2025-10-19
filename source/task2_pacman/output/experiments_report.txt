@@ -1,0 +1,3 @@
+=== LAYOUT: d:\hoc tap\HK5\AI\gk\code\svdang4\midtermAI_08\source\task2_pacman\input\task02_pacman_example_map.txt ===
+mode=per-food (plan_one_goal semantics, grid-rotate+destroy persist) | algo=A*-MST | runs=1
+cost=135 | expanded=2730 | generated=3858 | max_frontier=0 | time=4762.7ms

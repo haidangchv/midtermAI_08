@@ -96,21 +96,6 @@ class PlanService:
                 target_count_after = len(cur_foods)-1
                 def goal_fn(s, target_count=target_count_after):
                     return (s is not None) and (len(s.foods) == target_count)
-
-                for _ in list(cur_foods):
-                    prob = PacmanProblem(cur_grid, cur_pac, cur_foods, cur_exit,
-                                         pies=cur_pies, ghosts=cur_ghosts,
-                                         ttl0=cur_ttl, steps_mod30_0=cur_step, rot_idx0=0)
-                    hz = HeuristicPacmanMST(prob)
-                    res = _run_astar_safe(prob, hz, goal_fn=goal_fn)
-
-                    if not res or not res.get("solution"):
-                        continue
-
-                    cand_cost = float(res.get("cost", float("inf")))
-                    if (best is None) or (cand_cost < best[0]):
-                        best = (cand_cost, res)
-
                 if best is None:
                     return total_actions, total_coords, total_cost
 
