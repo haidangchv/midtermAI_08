@@ -1,4 +1,3 @@
-from typing import Any, Tuple, Set, List
 from astar import astar
 from heuristics import HeuristicPacmanMST
 from pacman_problem import PacmanProblem
