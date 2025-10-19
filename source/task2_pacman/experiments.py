@@ -31,7 +31,7 @@ def parse_layout(grid):
             elif ch == '.': foods.add((r, c))
             elif ch == 'O': pies.add((r, c))
             elif ch == 'E': exit_pos = (r, c)
-            elif ch == 'G': ghosts.append(((r, c), +1))  # mặc định mọi ghost dir=+1 (bạn xác nhận ok)
+            elif ch == 'G': ghosts.append(((r, c), +1)) 
     if start is None or exit_pos is None:
         raise ValueError("Layout cần có 'P' (start) và 'E' (exit).")
     return start, sorted(list(foods)), exit_pos, sorted(list(pies)), ghosts

@@ -1,1 +1,1 @@
-cost=135 | expanded=2730 | generated=3858 | time=3692.9ms
+cost=135 | expanded=2730 | generated=3858 | time=8216.5ms

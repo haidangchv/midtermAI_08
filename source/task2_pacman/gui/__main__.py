@@ -1,7 +1,7 @@
 import os, sys
 
 try:
-    from .game import PacmanGame  # chạy bằng: python -m source.task2_pacman.gui
+    from .game import PacmanGame  # chạy bằng: python -m source.task2_pacman.gui    
 except Exception:
     THIS_DIR = os.path.dirname(os.path.abspath(__file__))       # .../source/task2_pacman/gui
     PARENT   = os.path.dirname(THIS_DIR)                        # .../source/task2_pacman
