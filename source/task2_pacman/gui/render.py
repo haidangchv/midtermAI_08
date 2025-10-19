@@ -124,7 +124,7 @@ class Renderer:
         )
         surface.blit(hud1, (8, y0))
         if is_at_anchor(grid, pac):
-            hint = font.render("Teleport: phím 1–4 (TL, TR, BL, BR)", True, COLOR_HUD_EMPH)
+            hint = font.render("Teleport: Shift + 1–4 (TL, TR, BL, BR)", True, COLOR_HUD_EMPH)
             surface.blit(hint, (8, y0 + 20))
         if tuple(pac) == exit_pos and remaining > 0:
             warn = font.render(f" Need to eat more {remaining} food before EXIT!", True, (255, 210, 90))

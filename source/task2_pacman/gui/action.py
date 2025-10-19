@@ -6,11 +6,7 @@ class ActionExecutor:
         self.r = renderer
 
     def apply_action_step(self, a, grid, pac, foods, pies, ghosts, exit_pos, ttl, step_mod, screen):
-        """
-        Thực thi 1 action (N/S/E/W hoặc TUL/TUR/TBL/TBR) với tick ma + rotate mỗi 30 bước.
-        ĐÂM TƯỜNG/teleport không hợp lệ -> NO-OP (không tăng bước/cost).
-        Trả về: ..., died(bool), rotated(bool)
-        """
+
         R, C = len(grid), len(grid[0])
         prev_r, prev_c = pac[0], pac[1]
         nr, nc = prev_r, prev_c

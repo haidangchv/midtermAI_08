@@ -5,7 +5,6 @@ import os, sys
 try:
     from .game import PacmanGame  # chạy bằng: python -m source.task2_pacman.gui
 except Exception:
-    # Fallback: chạy trực tiếp file __main__.py
     THIS_DIR = os.path.dirname(os.path.abspath(__file__))       # .../source/task2_pacman/gui
     PARENT   = os.path.dirname(THIS_DIR)                        # .../source/task2_pacman
     if PARENT not in sys.path:
