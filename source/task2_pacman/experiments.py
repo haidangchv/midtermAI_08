@@ -1,4 +1,3 @@
-# source/task2_pacman/experiments.py
 from __future__ import annotations
 import os, sys, argparse, time, glob
 from dataclasses import dataclass
@@ -81,9 +80,8 @@ class RunMetrics:
 def _safe(res, key, default=0):
     return res.get(key, default) if isinstance(res, dict) else default
 
-# ==== GRID MUTATION (bắt chước game): quay lưới & xoá tường đã ăn ====
 def apply_destructions_to_grid(grid, destroyed):
-    """Đổi '%' thành ' ' tại các toạ độ trong lưới hiện tại (đã xoay)."""
+    """Đổi '%' thành ' ' tại các toạ độ trong lưới hiện tại"""
     if not destroyed:
         return grid
     rows = [list(row) for row in grid]
@@ -93,8 +91,7 @@ def apply_destructions_to_grid(grid, destroyed):
             rows[r][c] = ' '
     return ["".join(row) for row in rows]
 
-# ==== CHẠY PER-FOOD THEO ĐÚNG PLAN_ONE_GOAL ====
-def run_per_food_like_plan(grid0, start0, foods0, exit0, pies0, ghosts0, max_expanded: int) -> RunMetrics:
+def run_for_food(grid0, start0, foods0, exit0, pies0, ghosts0, max_expanded: int) -> RunMetrics:
     grid_cur = [row[:] for row in grid0]
     R_cur, C_cur = len(grid_cur), len(grid_cur[0])
 
@@ -124,7 +121,6 @@ def run_per_food_like_plan(grid0, start0, foods0, exit0, pies0, ghosts0, max_exp
         return _run_astar(prob, hz, goal_fn=goal_one_food, max_expanded=max_expanded)
 
     def _apply_post_segment(last_state):
-        """Sau mỗi chặng: quay lưới và xoá tường theo last.rot_idx / last.destroyed."""
         nonlocal grid_cur, R_cur, C_cur
         k = int(last_state.rot_idx) % 4
         if k != 0:
@@ -132,7 +128,6 @@ def run_per_food_like_plan(grid0, start0, foods0, exit0, pies0, ghosts0, max_exp
             grid_cur = rotate_many(grid_cur, k)
             # cập nhật kích thước
             R_cur, C_cur = len(grid_cur), len(grid_cur[0])
-        # xoá tường đã phá trong chặng vừa qua (toạ độ đã ở hệ toạ độ sau quay k)
         grid_cur = apply_destructions_to_grid(grid_cur, last_state.destroyed)
 
     # ---- vòng ăn từng food ----
@@ -149,7 +144,6 @@ def run_per_food_like_plan(grid0, start0, foods0, exit0, pies0, ghosts0, max_exp
         total_expanded += int(_safe(res, "expanded", 0))
         total_generated+= int(_safe(res, "generated", 0))
         last = res["solution"][-1]
-        # cập nhật state cho chặng sau (toạ độ đã phù hợp với grid_cur sau _apply_post_segment)
         cur_pac    = last.pacman
         cur_foods  = list(last.foods)
         cur_pies   = list(last.pies)
@@ -157,11 +151,8 @@ def run_per_food_like_plan(grid0, start0, foods0, exit0, pies0, ghosts0, max_exp
         cur_ttl    = last.ttl
         cur_step   = last.steps_mod30
 
-        # LƯU Ý QUAN TRỌNG: cập nhật lưới cho chặng sau
         _apply_post_segment(last)
 
-        # cập nhật exit theo lần quay k (nếu có)
-        # (cur_exit đang ở hệ toạ độ của grid_cur trước khi quay; sau khi quay k, map đổi hệ toạ độ)
         if last.rot_idx % 4 != 0:
             prev_R, prev_C = R_cur, C_cur 
             if (last.rot_idx % 2) == 1:
@@ -170,8 +161,6 @@ def run_per_food_like_plan(grid0, start0, foods0, exit0, pies0, ghosts0, max_exp
                 prev_R, prev_C = R_cur, C_cur
             cur_exit = rot_pos_many(cur_exit, prev_R, prev_C, last.rot_idx % 4)
 
-    # ---- khi hết food: A* tới exit (vẫn theo cơ chế plan) ----
-    # chạy 1 phát cuối từ grid_cur hiện tại, rot_idx0=0
     prob = PacmanProblem(grid_cur, cur_pac, cur_foods, cur_exit,
                          pies=cur_pies, ghosts=cur_ghosts,
                          ttl0=cur_ttl, steps_mod30_0=cur_step, rot_idx0=0)
@@ -196,7 +185,7 @@ TXT_PATH   = os.path.join(OUTPUT_DIR, "experiments_report.txt")
 
 def write_files(layout_path: str, m: RunMetrics):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    # TXT (overwrite) — simplified metrics output
+    # TXT
     with open(TXT_PATH, "w", encoding="utf-8") as f:
         f.write(
             f"cost={m.cost:.0f} | "
@@ -217,7 +206,7 @@ def main():
         print(f"\n=== LAYOUT: {lay} ===")
         print(f"Grid: {len(grid)}x{len(grid[0])} | foods={len(foods)} pies={len(pies)} ghosts={len(ghosts)}")
         print(f"algo=A*-MST | max_expanded={args.max_expanded}")
-        met = run_per_food_like_plan(grid, start, foods, exit_pos, pies, ghosts,
+        met = run_for_food(grid, start, foods, exit_pos, pies, ghosts,
                                      max_expanded=args.max_expanded)
         print(f"Done: cost={met.cost:.0f} | exp={met.expanded} | gen={met.generated} | time={met.time_ms:.1f}ms", flush=True)
 
