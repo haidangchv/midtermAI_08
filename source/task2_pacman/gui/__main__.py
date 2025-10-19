@@ -1,5 +1,3 @@
-# source/task2_pacman/gui/__main__.py
-
 import os, sys
 
 try:
