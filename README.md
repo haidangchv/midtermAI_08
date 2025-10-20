@@ -6,17 +6,6 @@
 cd source/task1_eight_puzzle
 'Astar_8Puzzle.ipynb' : Jupyter Notebook chứa mã thực thi cho bài toán 8-Puzzle.
 
-# Task 2: thí nghiệm A* (không GUI)
-python source/task2_pacman/experiments.py
-### Đầu ra
-- Viết vào: `output/experiments_report.txt`  
-  Định dạng (1 dòng):
-  cost=<int> | expanded=<int> | generated=<int> | time=<ms>ms
-
-- Ghi console (ví dụ):
-  Done: cost=135 | exp=12345 | gen=23456 | time=987.6ms
-
-
 # Task 2: GUI Pacman
 python -m source.task2_pacman.gui   # yêu cầu: pip install pygame
 ### Đầu ra chế độ AUTO
@@ -29,6 +18,17 @@ python -m source.task2_pacman.gui   # yêu cầu: pip install pygame
     ...
 
     + Định dạng path.txt: mỗi dòng là một toạ độ r c của Pacman sau mỗi bước.
+
+# Task 2: thí nghiệm A* (không GUI)
+python source/task2_pacman/experiments.py
+### Đầu ra thí nghiệm
+- Viết vào: `output/experiments_report.txt`  
+  Định dạng (1 dòng):
+  cost=<int> | expanded=<int> | generated=<int> | time=<ms>ms
+
+- Ghi console (ví dụ):
+  Done: cost=135 | exp=12345 | gen=23456 | time=987.6ms
+
 ```
 
 Thư mục chính:
