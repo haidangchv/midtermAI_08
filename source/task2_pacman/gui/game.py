@@ -87,7 +87,7 @@ class PacmanGame:
         start_w = int(info.current_w * 0.9)
         start_h = int(info.current_h * 0.9)
         screen = pygame.display.set_mode((start_w, start_h), pygame.RESIZABLE)
-        pygame.display.set_caption("Pacman – smooth AUTO, fast replan when queue empty (OOP)")
+        pygame.display.set_caption("Pacman – AUTO")
         clock = pygame.time.Clock()
 
         # assets
