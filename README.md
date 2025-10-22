@@ -79,7 +79,6 @@ midterm_08_52300186/
  |           |           |          ├── output.txt
  |           |           |          └── path.txt
  |           |          ├── astar.py
- |           |          ├── Classdiagram_task2.png
  |           |          ├── experiments.py
  |           |          ├── heuristics.py
  |           |          ├── pacman_problem.py
