@@ -267,7 +267,7 @@ class PacmanProblem:
         pies = list(s.pies)
         if (nr, nc) in pies:
             pies.remove((nr, nc))
-            ttl = 5
+            ttl = 6
 
         # 4) Ma di chuyển 
         old_ghosts = s.ghosts
