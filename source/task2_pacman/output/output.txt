@@ -1,4 +1,4 @@
-cost: 135
+cost: 131
 actions:
 West
 West
@@ -98,10 +98,8 @@ East
 North
 North
 North
-East
 North
 North
-West
 North
 North
 North
@@ -109,19 +107,19 @@ North
 North
 West
 West
-West
-North
-East
-North
-North
-North
-North
-North
 West
 North
 North
 East
+North
+North
+North
+North
 West
+North
+North
+North
+South
 West
 West
 South
@@ -129,9 +127,7 @@ West
 West
 West
 West
-West
 North
 North
-East
 East
 East
